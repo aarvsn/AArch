@@ -14,6 +14,7 @@
  */
 #include "gba.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #define SWI_SOFTRESET 0x00u
@@ -42,12 +43,21 @@ void gba_irq_dispatch(gba_t *g)
     if (handler == 0u)
         return; /* game has not installed a handler: keep IRQ pending */
 
-    c->bios_dispatch = 1;
-    /* emulate the BIOS prologue: push {r0-r3,r12,lr} onto the IRQ stack */
+    /* Hardware IRQ entry: CPSR -> SPSR_irq, switch to IRQ mode (banks
+     * r13/r14), set I, clear T. r15 still points at the next instruction
+     * that has NOT executed. */
+    uint32_t next_pc = c->r[15];
+    uint32_t old_cpsr = c->cpsr;
+    gba_cpu_set_mode(c, GBA_MODE_IRQ);
+    c->spsr[6] = old_cpsr;
+    c->cpsr = (old_cpsr & (uint32_t)~GBA_T) | GBA_I | GBA_MODE_IRQ;
+
+    /* emulate the BIOS dispatcher prologue: push {r0-r3,r12,lr} onto the IRQ
+     * stack with lr = interrupted next instruction + 4 (the hardware LR_irq
+     * contract; the BIOS returns with SUBS pc, lr, #4) */
     uint32_t sp = c->r[13];
-    uint32_t lr = c->r[14];
     sp -= 4u;
-    gba_mem_write32(g, sp, lr);
+    gba_mem_write32(g, sp, next_pc + 4u);
     sp -= 4u;
     gba_mem_write32(g, sp, c->r[12]);
     sp -= 4u;
@@ -63,7 +73,8 @@ void gba_irq_dispatch(gba_t *g)
     /* BIOS return sentinel: the game handler returns here */
     c->r[14] = 0x00000000u;
 
-    /* enter the game handler in IRQ mode via the CPU (thumb bit honored) */
+    c->bios_dispatch = 1;
+    /* enter the game handler (thumb bit honored) */
     c->cpsr = (c->cpsr & (uint32_t)~GBA_T) | (handler & 1u ? GBA_T : 0u);
     c->r[15] = handler & ~1u;
 }
@@ -79,14 +90,13 @@ void gba_irq_dispatch_return(gba_t *g)
     c->r[2] = gba_mem_read32(g, sp + 8u);
     c->r[3] = gba_mem_read32(g, sp + 12u);
     c->r[12] = gba_mem_read32(g, sp + 16u);
-    c->r[14] = gba_mem_read32(g, sp + 20u);
+    uint32_t ret = gba_mem_read32(g, sp + 20u); /* interrupted next_pc + 4 */
     c->r[13] = sp + 24u;
     c->bios_dispatch = 0;
-    /* return: SUBS pc, lr, #4 (CPSR restored from SPSR) */
-    uint32_t spsr = gba_cpu_read_spsr(c);
-    c->r[15] = c->r[14] - 4u;
-    c->cpsr = spsr;
-    gba_cpu_set_mode(c, (uint8_t)(spsr & 0x1Fu));
+    /* BIOS return: SUBS pc, lr, #4 (CPSR restored from SPSR_irq) */
+    c->r[15] = ret - 4u;
+    c->cpsr = gba_cpu_read_spsr(c);
+    gba_cpu_set_mode(c, (uint8_t)(c->cpsr & 0x1Fu));
 }
 
 void gba_swi_hle(gba_t *g, uint32_t comment)
@@ -95,12 +105,13 @@ void gba_swi_hle(gba_t *g, uint32_t comment)
 
     /* returning from the emulated IRQ dispatcher: sentinel address 0 */
     if (c->bios_dispatch && (c->r[15] & 0x07FFFFFFu) == 0u) {
-        irq_dispatch_return(g);
+        gba_irq_dispatch_return(g);
         return;
     }
 
     switch (comment) {
     case SWI_HALT:
+        c->intr_wait_active = 0;
         c->halted = 1;
         break;
     case SWI_VBLANKINTRWAIT:
@@ -201,7 +212,6 @@ void gba_swi_hle(gba_t *g, uint32_t comment)
         uint32_t mode = c->r[2] >> 24;
         int fixed = (mode & 4u) != 0;
         int word = (mode & 3u) != 0;
-        uint32_t step = word ? 4u : 2u;
         uint32_t v32 = 0;
         uint16_t v16 = 0;
         if (fixed) {
@@ -228,7 +238,6 @@ void gba_swi_hle(gba_t *g, uint32_t comment)
                     src += 2u;
                 dst += 2u;
             }
-            step = step; /* cycle accounting approximate */
         }
         break;
     }

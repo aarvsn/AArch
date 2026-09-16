@@ -320,6 +320,10 @@ static emu_result_t nes_save_state(emu_core_t *core, uint8_t *buf, size_t cap)
         return EMU_EINVAL;
     if (n->cart.prg == NULL)
         return EMU_ENOROM;
+    
+    /* Contract: an undersized buffer must be rejected without writing. */
+    if (cap < nes_state_size(core))
+        return EMU_ENOSPACE;
     emu_state_writer w = { buf, cap, 0, 0 };
     nes_serialize(n, &w);
     if (w.overflow)

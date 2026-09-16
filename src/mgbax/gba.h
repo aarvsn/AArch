@@ -162,6 +162,7 @@ void gba_timers_write(gba_t *g, uint32_t addr, uint16_t v);
 
 typedef struct {
     uint32_t sad[4], dad[4];
+    uint32_t dad_latch[4];   /* DAD captured at enable (DST_RELOAD source) */
     uint16_t count_latch[4];
     uint16_t ctrl[4];
     uint16_t count[4];

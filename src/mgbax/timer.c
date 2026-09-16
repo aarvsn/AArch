@@ -3,6 +3,8 @@
  * overflow IRQs. Timers tick on CPU-cycle counts delivered by the frame
  * loop; cascade chains ch0->1->2->3 per the GBA specification.
  */
+#include <string.h>
+
 #include "gba.h"
 
 static const uint32_t prescale_div[4] = { 1u, 64u, 256u, 1024u };
@@ -15,7 +17,7 @@ void gba_timers_reset(gba_timers *t)
 static void timer_overflow(gba_t *g, int ch)
 {
     g->timers.counter[ch] = g->timers.reload[ch];
-    if (ch < 3u && (g->timers.ctrl[ch + 1u] & (1u << 2u))) {
+    if (ch < 3 && (g->timers.ctrl[ch + 1u] & (1u << 2u))) {
         /* cascade into next channel */
         uint32_t v = (uint32_t)g->timers.counter[ch + 1u] + 1u;
         if (v > 0xFFFFu) {

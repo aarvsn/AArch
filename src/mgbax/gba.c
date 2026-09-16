@@ -1,10 +1,11 @@
 /*
  * mgbax core lifecycle, frame loop, save states.
  *
- * Direct boot (no BIOS ROM): the CPU starts at $08000000 in System mode
- * with a default SVC stack. IRQs are dispatched through the HLE BIOS
- * dispatcher (see swi.c). The game handler pointer at $03007FFC must be
- * installed by the ROM for IRQs to be delivered.
+ * Direct boot (no BIOS ROM): the CPU starts at $08000000 in Supervisor mode
+ * with BIOS-equivalent default stacks (SP_svc=$03007FE0, SP_irq=$03007FA0,
+ * SP_sys=$03007F00). IRQs are dispatched through the HLE BIOS dispatcher
+ * (see swi.c): the game handler pointer at $03007FFC must be installed by
+ * the ROM for IRQs to be delivered, and the handler must acknowledge IF.
  */
 #include "gba.h"
 #include "../common/util.h"
@@ -17,17 +18,6 @@ static const emu_core_vtable_t gba_vtable;
 #define GBA_CPU_HZ 16777216u
 #define GBA_LINES_PER_FRAME 228u
 #define GBA_CYCLES_PER_LINE 1232u
-
-static void gba_frame_irq_check(gba_t *g)
-{
-    /* IntrWait/VBlankIntrWait: wake when requested flags are pending */
-    gba_cpu *c = &g->cpu;
-    if (c->intr_wait_active && (g->mem.if_reg & c->intr_wait_flags) != 0u) {
-        g->mem.if_reg &= (uint16_t)~c->intr_wait_flags;
-        c->intr_wait_active = 0;
-        c->halted = 0;
-    }
-}
 
 static emu_result_t gba_create(emu_core_t **out)
 {
@@ -90,9 +80,6 @@ static emu_result_t gba_run_frame(emu_core_t *core)
     for (uint16_t line = 0; line < GBA_LINES_PER_FRAME; line++) {
         uint32_t line_cycles = 0;
         g->ppu.vcount = line;
-        /* HBlank flag + trigger DMA at line end */
-        uint16_t dispstat_hi = (uint16_t)(g->mem.io[0x05] << 8);
-        (void)dispstat_hi;
 
         while (line_cycles < GBA_CYCLES_PER_LINE) {
             uint32_t cycles = gba_cpu_step(g);
@@ -102,23 +89,18 @@ static emu_result_t gba_run_frame(emu_core_t *core)
             gba_apu_step(g, cycles);
         }
 
-        /* end of visible line: HBlank trigger */
-        if (line < 160u)
+        /* end of visible line: render, then HBlank DMA trigger */
+        if (line < 160u) {
             gba_ppu_render_line(g, line);
+            gba_dma_run(g, 2u); /* HBlank DMA */
+        }
 
         if (line == 159u) {
             /* VBlank start: trigger VBlank DMA + IRQ */
-            uint16_t dispstat = (uint16_t)(g->mem.io[0x04] |
-                                           ((uint16_t)g->mem.io[0x05] << 8));
-            (void)dispstat;
             gba_dma_run(g, 1u);
             if (g->mem.ie & 0x0001u)
                 gba_request_irq(g, 0x0001u);
-            gba_frame_irq_check(g);
-        } else if (line < 160u) {
-            gba_dma_run(g, 2u); /* HBlank DMA */
         }
-        gba_frame_irq_check(g);
     }
     g->ppu.frame++;
 
@@ -191,6 +173,7 @@ static void gba_serialize(gba_t *g, emu_state_writer *w)
     for (int i = 0; i < 4; i++) {
         sw_u32(w, g->dma.sad[i]);
         sw_u32(w, g->dma.dad[i]);
+        sw_u32(w, g->dma.dad_latch[i]);
         sw_u16(w, g->dma.count_latch[i]);
         sw_u16(w, g->dma.ctrl[i]);
         sw_u16(w, g->dma.count[i]);
@@ -247,6 +230,7 @@ static void gba_deserialize(gba_t *g, emu_state_reader *r)
     for (int i = 0; i < 4; i++) {
         g->dma.sad[i] = sr_u32(r);
         g->dma.dad[i] = sr_u32(r);
+        g->dma.dad_latch[i] = sr_u32(r);
         g->dma.count_latch[i] = sr_u16(r);
         g->dma.ctrl[i] = sr_u16(r);
         g->dma.count[i] = sr_u16(r);
@@ -286,6 +270,10 @@ static emu_result_t gba_save_state(emu_core_t *core, uint8_t *buf, size_t cap)
         return EMU_EINVAL;
     if (g->cart.rom == NULL)
         return EMU_ENOROM;
+    
+    /* Contract: an undersized buffer must be rejected without writing. */
+    if (cap < gba_state_size(core))
+        return EMU_ENOSPACE;
     emu_state_writer w = { buf, cap, 0, 0 };
     gba_serialize(g, &w);
     if (w.overflow)

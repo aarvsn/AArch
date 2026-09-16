@@ -119,8 +119,9 @@ static uint16_t affine_bg_pixel(gba_t *g, uint8_t aff, uint16_t sx, uint16_t sy)
                 (int64_t)g->ppu.bgy[aff] + 128;
     int32_t tex_x = (int32_t)(x >> 8);
     int32_t tex_y = (int32_t)(y >> 8);
-    if (tex_x < 0 || tex_x >= (int32_t)map_wh * 8u || tex_y < 0 ||
-        tex_y >= (int32_t)map_wh * 8u)
+    int32_t map_lim = (int32_t)map_wh * 8;
+    if (tex_x < 0 || tex_x >= map_lim || tex_y < 0 ||
+        tex_y >= map_lim)
         return 0xFFFFu; /* outside: transparent (wrap unimplemented) */
     uint32_t tile_x = (uint32_t)tex_x >> 3;
     uint32_t tile_y = (uint32_t)tex_y >> 3;
@@ -185,12 +186,16 @@ static uint16_t sprite_pixel(gba_t *g, uint16_t sx, uint16_t sy)
         uint8_t fyy = (uint8_t)(py % 8u);
         uint32_t tile_off = 0x10000u + t * (color_mode == 8u ? 64u : 32u) +
                             (uint32_t)fyy * (color_mode == 8u ? 8u : 4u);
+        /* OBJ tiles live at VRAM 0x10000-0x17FFF; 0x18000+ mirrors down */
+        uint32_t voff = tile_off & 0x1FFFFu;
+        if (voff >= 0x18000u)
+            voff -= 0x8000u;
         uint8_t color;
         if (color_mode == 4u) {
-            uint8_t b = g->mem.vram[(tile_off + (uint32_t)(fxx >> 1)) & 0xFFFFu];
+            uint8_t b = g->mem.vram[(voff + (uint32_t)(fxx >> 1)) & 0x1FFFFu];
             color = (fxx & 1u) ? (uint8_t)(b >> 4) : (uint8_t)(b & 0xFu);
         } else {
-            color = g->mem.vram[(tile_off + fxx) & 0xFFFFu];
+            color = g->mem.vram[(voff + fxx) & 0x1FFFFu];
         }
         if (color == 0u)
             continue;

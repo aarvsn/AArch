@@ -248,6 +248,10 @@ static emu_result_t snes_save_state(emu_core_t *core, uint8_t *buf, size_t cap)
         return EMU_EINVAL;
     if (s->cart.rom == NULL)
         return EMU_ENOROM;
+    
+    /* Contract: an undersized buffer must be rejected without writing. */
+    if (cap < snes_state_size(core))
+        return EMU_ENOSPACE;
     emu_state_writer w = { buf, cap, 0, 0 };
     snes_serialize(s, &w);
     if (w.overflow)

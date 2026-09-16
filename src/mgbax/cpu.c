@@ -88,7 +88,13 @@ void gba_cpu_power_on(gba_cpu *c)
     memset(c, 0, sizeof *c);
     c->mode = GBA_MODE_SVC;
     c->cpsr = GBA_I | GBA_F | GBA_MODE_SVC;
-    c->r[13] = 0x03007F00u;
+    /* BIOS-equivalent stack defaults (documented): SP_svc = $03007FE0,
+     * SP_irq = $03007FA0, SP_sys/usr = $03007F00. Direct boot starts in
+     * SVC mode, so r13 mirrors the SVC bank. */
+    c->bank_r13[0] = 0x03007F00u;
+    c->bank_r13[2] = 0x03007FA0u;
+    c->bank_r13[3] = 0x03007FE0u;
+    c->r[13] = 0x03007FE0u;
     c->r[15] = 0x08000000u;
 }
 
@@ -191,15 +197,16 @@ static inline uint8_t cpsr_c(const gba_cpu *c)
     return (uint8_t)((c->cpsr & GBA_C) ? 1 : 0);
 }
 
-/* decode ARM operand2 (register form); pc_offset adds the pipeline offset
- * for PC-relative reads (0 for immediate shifts, +4 for register shifts) */
+/* decode ARM operand2 (register form). PC reads: +8 for immediate shifts,
+ * +12 for register-specified shifts (ARM7TDMI pipeline; c->r[15] currently
+ * holds instruction address + 4, so +4/+8 on top of that). */
 static shift_result arm_operand2(gba_cpu *c, uint32_t instr)
 {
     uint8_t type = (uint8_t)((instr >> 5) & 3u);
     uint8_t rm = (uint8_t)(instr & 0xFu);
     if (instr & (1u << 4)) { /* register-specified shift */
         uint32_t amount = c->r[(instr >> 8) & 0xFu] & 0xFFu;
-        uint32_t value = (rm == 15u) ? (c->r[15] + 4u) : c->r[rm];
+        uint32_t value = (rm == 15u) ? (c->r[15] + 8u) : c->r[rm];
         if (amount == 0u) { /* shift by 0: unchanged, C unaffected */
             shift_result r;
             r.value = value;
@@ -209,7 +216,7 @@ static shift_result arm_operand2(gba_cpu *c, uint32_t instr)
         return shift_calc(value, type, amount, cpsr_c(c));
     }
     uint32_t amount = (instr >> 7) & 0x1Fu;
-    uint32_t value = (rm == 15u) ? c->r[15] : c->r[rm];
+    uint32_t value = (rm == 15u) ? (c->r[15] + 4u) : c->r[rm];
     if (amount != 0u)
         return shift_calc(value, type, amount, cpsr_c(c));
     /* shift-by-zero immediates */
@@ -276,8 +283,10 @@ static inline uint32_t sub_with_carry(gba_cpu *c, uint32_t a, uint32_t b,
 {
     uint32_t r = a - b - borrow_in;
     if (set_flags) {
+        /* 64-bit compare: b + borrow_in can wrap when b == 0xFFFFFFFF */
+        uint64_t rhs = (uint64_t)b + borrow_in;
         c->cpsr &= (uint32_t)~(GBA_N | GBA_Z | GBA_C | GBA_V);
-        if (a >= b + borrow_in)
+        if ((uint64_t)a >= rhs)
             c->cpsr |= GBA_C;
         if ((a ^ b) & (a ^ r) & 0x80000000u)
             c->cpsr |= GBA_V;
@@ -312,12 +321,16 @@ static void do_msr(gba_cpu *c, uint32_t instr, uint32_t value)
     gba_cpu_set_mode(c, new_mode);
 }
 
-/* ---- ARM step ---------------------------------------------------------------------- */
-
+/* ---- ARM step ----------------------------------------------------------------------
+ *
+ * PC convention: gba_cpu_step has ALREADY advanced r15 past the fetched
+ * instruction (r15 = instruction address + 4 here). Sequential handlers
+ * must NOT advance r15 again; control-flow handlers assign r15 directly.
+ * PC reads follow the ARM7 pipeline: r15+4 (instr+8) normally, r15+8
+ * (instr+12) for register-specified shifts. */
 static uint32_t arm_step(gba_t *g, gba_cpu *c, uint32_t instr)
 {
     if (!cond_ok(instr >> 28, c->cpsr)) {
-        c->r[15] += 4u;
         return 1;
     }
 
@@ -325,7 +338,6 @@ static uint32_t arm_step(gba_t *g, gba_cpu *c, uint32_t instr)
     if ((instr & 0x0F000000u) == 0x0F000000u) {
         uint32_t comment = instr & 0xFFu;
         gba_swi_hle(g, comment);
-        c->r[15] += 4u;
         return 3;
     }
 
@@ -337,8 +349,10 @@ static uint32_t arm_step(gba_t *g, gba_cpu *c, uint32_t instr)
         return 3;
     }
 
-    /* multiply family */
-    if ((instr & 0x0FC000F0u) == 0x00000090u) {
+    /* multiply family: MUL/MLA have bits[27:22] = 000000; the 64-bit
+     * MULL family has bits[27:23] = 00001 with U=bit22, A=bit21 */
+    if ((instr & 0x0FC000F0u) == 0x00000090u ||
+        (instr & 0x0F8000F0u) == 0x00800090u) {
         uint8_t rd = (uint8_t)((instr >> 16) & 0xFu);
         uint8_t rn = (uint8_t)((instr >> 12) & 0xFu);
         uint8_t rs = (uint8_t)((instr >> 8) & 0xFu);
@@ -376,7 +390,6 @@ static uint32_t arm_step(gba_t *g, gba_cpu *c, uint32_t instr)
             if (set_flags)
                 set_nz32(c, result);
         }
-        c->r[15] += 4u;
         return 4;
     }
 
@@ -384,7 +397,6 @@ static uint32_t arm_step(gba_t *g, gba_cpu *c, uint32_t instr)
     if ((instr & 0x0FBF0FFFu) == 0x010F0000u) {
         uint8_t rd = (uint8_t)((instr >> 12) & 0xFu);
         c->r[rd] = (instr & (1u << 22)) ? gba_cpu_read_spsr(c) : c->cpsr;
-        c->r[15] += 4u;
         return 2;
     }
 
@@ -398,7 +410,6 @@ static uint32_t arm_step(gba_t *g, gba_cpu *c, uint32_t instr)
             value = c->r[instr & 0xFu];
         }
         do_msr(c, instr, value);
-        c->r[15] += 4u;
         return 2;
     }
 
@@ -417,7 +428,6 @@ static uint32_t arm_step(gba_t *g, gba_cpu *c, uint32_t instr)
             gba_mem_write32(g, addr, c->r[rm]);
             c->r[rd] = tmp;
         }
-        c->r[15] += 4u;
         return 4;
     }
 
@@ -430,8 +440,8 @@ static uint32_t arm_step(gba_t *g, gba_cpu *c, uint32_t instr)
         int writeback = (instr & (1u << 21)) != 0;
         int load = (instr & (1u << 20)) != 0;
         uint32_t offset = (instr & (1u << 22))
-                              ? ((uint32_t)(instr >> 4) & 0xFu) |
-                                    ((uint32_t)(instr >> 8) & 0xF0u)
+                              ? ((uint32_t)instr & 0xFu) |
+                                    ((uint32_t)(instr >> 4) & 0xF0u)
                               : c->r[instr & 0xFu];
         uint32_t base = get_reg(c, rn, 0);
         uint32_t addr = up ? base + offset : base - offset;
@@ -462,7 +472,6 @@ static uint32_t arm_step(gba_t *g, gba_cpu *c, uint32_t instr)
             }
             c->r[rn] = addr;
         }
-        c->r[15] += 4u;
         return load ? 3u : 2u;
     }
 
@@ -475,7 +484,8 @@ static uint32_t arm_step(gba_t *g, gba_cpu *c, uint32_t instr)
         int writeback = (instr & (1u << 21)) != 0;
         int load = (instr & (1u << 20)) != 0;
         int byte = (instr & (1u << 22)) != 0;
-        uint32_t base = get_reg(c, rn, 0);
+        /* Rn == PC reads instruction address + 8 (r15 is instr + 4 here) */
+        uint32_t base = get_reg(c, rn, 4);
         uint32_t offset;
         if (instr & (1u << 25)) {
             shift_result sr = arm_operand2(c, instr);
@@ -526,7 +536,8 @@ static uint32_t arm_step(gba_t *g, gba_cpu *c, uint32_t instr)
             }
             c->r[rn] = addr;
         }
-        c->r[15] += 4u;
+        if (load && rd == 15u)
+            c->r[15] &= ~3u; /* word-aligned PC (also covers byte loads) */
         return load ? 3u : 2u;
     }
 
@@ -544,10 +555,12 @@ static uint32_t arm_step(gba_t *g, gba_cpu *c, uint32_t instr)
                 count++;
         uint32_t base = c->r[rn];
         uint32_t addr;
+        /* DB: first transfer at base - count*4 (ascending to base-4)
+         * DA: first transfer at base - (count-1)*4 (ascending to base) */
         if (up)
             addr = pre ? base + 4u : base;
         else
-            addr = base - (uint32_t)count * 4u + (pre ? 0u : 0u);
+            addr = base - (uint32_t)count * 4u + (pre ? 0u : 4u);
         uint32_t loaded_pc = 0;
         int has_pc = (list & (1u << 15)) != 0;
         for (int i = 0; i < 16; i++) {
@@ -566,15 +579,13 @@ static uint32_t arm_step(gba_t *g, gba_cpu *c, uint32_t instr)
             addr += 4u;
         }
         if (load && has_pc) {
-            c->cpsr = (c->cpsr & (uint32_t)~GBA_T) |
-                      (loaded_pc & 1u ? GBA_T : 0u);
-            c->r[15] = loaded_pc & ~3u; /* ARMv4T: no state switch on LDM */
+            /* ARMv4T: LDM with PC does NOT interwork; bit0 ignored, T kept */
+            c->r[15] = loaded_pc & ~3u;
             return (uint32_t)(4u + (uint32_t)count);
         }
         if (writeback && !(load && (list & (1u << rn)) != 0u))
             c->r[rn] = up ? base + (uint32_t)count * 4u
                           : base - (uint32_t)count * 4u;
-        c->r[15] += 4u;
         return (uint32_t)(2u + (uint32_t)count);
     }
 
@@ -623,9 +634,9 @@ static uint32_t arm_step(gba_t *g, gba_cpu *c, uint32_t instr)
         case 0x6: result = sub_with_carry(c, a, b, 1u - cpsr_c(c), set_flags); break;
         case 0x7: result = sub_with_carry(c, b, a, 1u - cpsr_c(c), set_flags); break;
         case 0x8: result = a & b; write = 0;
-                  if (set_flags) set_nz32(c, result); break;
+                  if (set_flags) { set_nz32(c, result); } break;
         case 0x9: result = a ^ b; write = 0;
-                  if (set_flags) set_nz32(c, result); break;
+                  if (set_flags) { set_nz32(c, result); } break;
         case 0xA: result = sub_with_carry(c, a, b, 0, set_flags); write = 0; break;
         case 0xB: result = add_with_carry(c, a, b, 0, set_flags); write = 0; break;
         case 0xC: result = a | b; if (set_flags) set_nz32(c, result); break;
@@ -653,13 +664,14 @@ static uint32_t arm_step(gba_t *g, gba_cpu *c, uint32_t instr)
             }
             c->r[rd] = result;
         }
-        c->r[15] += 4u;
         return 2;
     }
 }
 
-/* ---- Thumb ------------------------------------------------------------------ */
-
+/* ---- Thumb ------------------------------------------------------------------
+ *
+ * Same PC convention: r15 already points past the fetched halfword.
+ * Sequential handlers do not advance r15; branches assign it. */
 static uint32_t thumb_step(gba_t *g, gba_cpu *c, uint16_t instr)
 {
     uint32_t op = instr >> 11;
@@ -680,22 +692,21 @@ static uint32_t thumb_step(gba_t *g, gba_cpu *c, uint16_t instr)
         c->r[rd] = r.value;
         c->cpsr = (c->cpsr & (uint32_t)~GBA_C) | (r.carry_out ? GBA_C : 0u);
         set_nz32(c, r.value);
-        c->r[15] += 2u;
         return 2;
     }
 
-    /* add/sub: 00011 */
+    /* add/sub: 00011. Format 2: I=bit10, op=bit9, Rm bits[8:6],
+     * Rn bits[5:3], Rd bits[2:0]. */
     if (op == 3u) {
-        uint8_t rm = (uint8_t)(instr & 7u);
+        uint8_t rm = (uint8_t)((instr >> 6) & 7u);
         uint8_t rn = (uint8_t)((instr >> 3) & 7u);
-        uint8_t rd = (uint8_t)((instr >> 6) & 7u);
+        uint8_t rd = (uint8_t)(instr & 7u);
         int imm_form = (instr & (1u << 10)) != 0;
         int is_sub = (instr & (1u << 9)) != 0;
         uint32_t a = c->r[rn];
         uint32_t b = imm_form ? ((instr >> 6) & 7u) : c->r[rm];
         c->r[rd] = is_sub ? sub_with_carry(c, a, b, 0, 1)
                           : add_with_carry(c, a, b, 0, 1);
-        c->r[15] += 2u;
         return 2;
     }
 
@@ -713,15 +724,15 @@ static uint32_t thumb_step(gba_t *g, gba_cpu *c, uint16_t instr)
         } else {
             c->r[rd] = sub_with_carry(c, c->r[rd], imm, 0, 1);
         }
-        c->r[15] += 2u;
         return 2;
     }
 
-    /* ALU operations: 010000xxxx */
+    /* ALU operations: 010000xxxx. Format 4: opcode bits[9:6], Rm bits[5:3],
+     * Rd bits[2:0]. */
     if (instr >= 0x4000u && instr < 0x4400u) {
         uint8_t op2 = (uint8_t)((instr >> 6) & 0xFu);
-        uint8_t rm = (uint8_t)(instr & 7u);
-        uint8_t rd = (uint8_t)((instr >> 3) & 7u);
+        uint8_t rm = (uint8_t)((instr >> 3) & 7u);
+        uint8_t rd = (uint8_t)(instr & 7u);
         uint32_t a = c->r[rd], b = c->r[rm];
         switch (op2) {
         case 0x0: c->r[rd] = a & b; set_nz32(c, c->r[rd]); break;
@@ -746,21 +757,20 @@ static uint32_t thumb_step(gba_t *g, gba_cpu *c, uint16_t instr)
         case 0xE: c->r[rd] = a & ~b; set_nz32(c, c->r[rd]); break;
         default: c->r[rd] = ~b; set_nz32(c, c->r[rd]); break;
         }
-        c->r[15] += 2u;
         return 2;
     }
 
-    /* PC-relative load: 01001 */
+    /* PC-relative load: 01001. PC reads instruction address + 4 (r15 is
+     * instr + 2 here), word-aligned. */
     if ((instr & 0xF800u) == 0x4800u) {
         uint8_t rd = (uint8_t)((instr >> 8) & 7u);
-        uint32_t addr = ((c->r[15] + 4u) & ~3u) + (uint32_t)(instr & 0xFFu) * 4u;
+        uint32_t addr = ((c->r[15] + 2u) & ~3u) + (uint32_t)(instr & 0xFFu) * 4u;
         c->r[rd] = gba_bus_read32(g, addr);
-        c->r[15] += 2u;
         return 3;
     }
 
-    /* Hi register ops / BX: 010001 */
-    if ((instr & 0xF000u) == 0x4000u && (instr & 0x0800u) != 0u) {
+    /* Hi register ops / BX: 010001 (0x4400-0x47FF) */
+    if ((instr & 0xFC00u) == 0x4400u) {
         uint8_t op2 = (uint8_t)((instr >> 8) & 3u);
         uint8_t rm = (uint8_t)((instr >> 3) & 0xFu);
         uint8_t rd = (uint8_t)((instr & 7u) | ((instr >> 4) & 8u));
@@ -787,18 +797,19 @@ static uint32_t thumb_step(gba_t *g, gba_cpu *c, uint16_t instr)
         }
         if (rd == 15u && op2 != 1u)
             return 3;
-        c->r[15] += 2u;
         return 2;
     }
 
-    /* load/store with register offset + sign-extended/halfword: 0101 */
+    /* load/store with register offset + sign-extended/halfword: 0101.
+     * Format 6/7: Rm bits[8:6], Rn bits[5:3], Rd bits[2:0]; halfword form
+     * has bit9 set and H=bit11, S=bit10. */
     if ((instr & 0xF000u) == 0x5000u) {
-        uint8_t rm = (uint8_t)(instr & 7u);
+        uint8_t rm = (uint8_t)((instr >> 6) & 7u);
         uint8_t rn = (uint8_t)((instr >> 3) & 7u);
-        uint8_t rd = (uint8_t)((instr >> 6) & 7u);
+        uint8_t rd = (uint8_t)(instr & 7u);
         uint32_t addr = c->r[rn] + c->r[rm];
         uint8_t op2 = (uint8_t)((instr >> 10) & 3u);
-        uint8_t kind = (uint8_t)(((instr >> 10) & 1u) | ((instr >> 6) & 2u));
+        uint8_t kind = (uint8_t)((instr >> 10) & 3u);
         if ((instr & 0x0200u) == 0u) { /* 0101 0xx: STR/LDRB/LDR/STRB... */
             switch (op2) {
             case 0: gba_mem_write32(g, addr, c->r[rd]); break;
@@ -806,7 +817,6 @@ static uint32_t thumb_step(gba_t *g, gba_cpu *c, uint16_t instr)
             case 2: c->r[rd] = gba_bus_read32(g, addr); break;
             default: c->r[rd] = gba_mem_read8(g, addr); break;
             }
-            c->r[15] += 2u;
             return (op2 >= 2u) ? 3u : 2u;
         }
         /* 0101 1xx: STRH/LDSB/LDRH/LDSH */
@@ -816,17 +826,17 @@ static uint32_t thumb_step(gba_t *g, gba_cpu *c, uint16_t instr)
         case 2: c->r[rd] = gba_bus_read16(g, addr); break;
         default: c->r[rd] = (uint32_t)(int32_t)(int16_t)gba_bus_read16(g, addr); break;
         }
-        c->r[15] += 2u;
         return (kind & 2u) ? 3u : 2u;
     }
 
-    /* STR/LDRB/LDR/LDRB immediate: 011 */
+    /* STR/LDRB/LDR/LDRB immediate: 011. L=bit11, B=bit10; byte transfers
+     * scale the offset by 1, word transfers by 4. */
     if ((instr & 0xE000u) == 0x6000u) {
-        uint8_t op2 = (uint8_t)((instr >> 11) & 3u);
+        uint8_t op2 = (uint8_t)((instr >> 10) & 3u);
         uint32_t imm = (instr >> 6) & 0x1Fu;
         uint8_t rn = (uint8_t)((instr >> 3) & 7u);
         uint8_t rd = (uint8_t)(instr & 7u);
-        uint32_t addr = c->r[rn] + (op2 < 2u ? imm : imm * 4u);
+        uint32_t addr = c->r[rn] + ((op2 & 1u) ? imm : imm * 4u);
         if (op2 == 0u) {
             gba_mem_write32(g, addr, c->r[rd]);
         } else if (op2 == 1u) {
@@ -836,7 +846,6 @@ static uint32_t thumb_step(gba_t *g, gba_cpu *c, uint16_t instr)
         } else {
             c->r[rd] = gba_mem_read8(g, addr);
         }
-        c->r[15] += 2u;
         return (op2 >= 2u) ? 3u : 2u;
     }
 
@@ -850,7 +859,6 @@ static uint32_t thumb_step(gba_t *g, gba_cpu *c, uint16_t instr)
             c->r[rd] = gba_bus_read16(g, addr);
         else
             gba_mem_write16(g, addr, (uint16_t)c->r[rd]);
-        c->r[15] += 2u;
         return (instr & (1u << 11)) ? 3u : 2u;
     }
 
@@ -862,17 +870,15 @@ static uint32_t thumb_step(gba_t *g, gba_cpu *c, uint16_t instr)
             c->r[rd] = gba_bus_read32(g, addr);
         else
             gba_mem_write32(g, addr, c->r[rd]);
-        c->r[15] += 2u;
         return (instr & (1u << 11)) ? 3u : 2u;
     }
 
-    /* load address: 1010 */
+    /* load address: 1010. PC form: instruction address + 4, word-aligned */
     if ((instr & 0xF000u) == 0xA000u) {
         uint8_t rd = (uint8_t)((instr >> 8) & 7u);
         uint32_t imm = (uint32_t)(instr & 0xFFu) * 4u;
         c->r[rd] = (instr & (1u << 11)) ? c->r[13] + imm
-                                        : ((c->r[15] + 4u) & ~3u) + imm;
-        c->r[15] += 2u;
+                                        : ((c->r[15] + 2u) & ~3u) + imm;
         return 2;
     }
 
@@ -908,14 +914,14 @@ static uint32_t thumb_step(gba_t *g, gba_cpu *c, uint16_t instr)
             if (load) {
                 uint32_t v = gba_bus_read32(g, addr);
                 c->r[13] = addr + 4u;
-                c->r[15] = v & ~1u;
+                /* ARMv4T: POP {pc} does not interwork; word-align, keep T */
+                c->r[15] = v & ~3u;
                 return 5;
             }
             gba_mem_write32(g, addr, c->r[14]);
             addr += 4u;
         }
         c->r[13] = load ? addr : c->r[13];
-        c->r[15] += 2u;
         return load ? 4u : 3u;
     }
 
@@ -923,7 +929,6 @@ static uint32_t thumb_step(gba_t *g, gba_cpu *c, uint16_t instr)
     if ((instr & 0xFF00u) == 0xB000u) {
         uint32_t imm = (uint32_t)(instr & 0x7Fu) * 4u;
         c->r[13] = (instr & (1u << 7)) ? c->r[13] + imm : c->r[13] - imm;
-        c->r[15] += 2u;
         return 2;
     }
 
@@ -946,7 +951,6 @@ static uint32_t thumb_step(gba_t *g, gba_cpu *c, uint16_t instr)
             c->r[rn] = addr;
         else
             c->r[rn] = base;
-        c->r[15] += 2u;
         return load ? 4u : 3u;
     }
 
@@ -959,46 +963,46 @@ static uint32_t thumb_step(gba_t *g, gba_cpu *c, uint16_t instr)
             c->r[15] = next + ((uint32_t)(int32_t)off << 1u);
             return 3;
         }
-        c->r[15] += 2u;
         return 2;
     }
 
     /* SWI Thumb: 1101 1111 */
     if ((instr & 0xFF00u) == 0xDF00u) {
         gba_swi_hle(g, instr & 0xFFu);
-        c->r[15] += 2u;
         return 3;
     }
 
-    /* unconditional branch: 11100 */
+    /* unconditional branch: 11100. Target = instruction address + 4 + off*2
+     * (r15 is instruction address + 2 inside thumb_step). */
     if ((instr & 0xF800u) == 0xE000u) {
         int32_t off = (int32_t)(instr & 0x7FFu);
         off = (off << 21) >> 21;
-        c->r[15] = c->r[15] + 4u + ((uint32_t)off << 1u);
+        c->r[15] = c->r[15] + 2u + ((uint32_t)off << 1u);
         return 3;
     }
 
-    /* BL first halfword: 11110 */
+    /* BL first halfword: 11110. LR = instruction address + 4 + off<<12
+     * (LSB 1). r15 must stay on the SECOND halfword: it already points
+     * there (pre-advanced fetch), so no advance here. */
     if ((instr & 0xF800u) == 0xF000u) {
         int32_t off = (int32_t)(instr & 0x7FFu);
         off = (off << 21) >> 21;
-        c->r[14] = (c->r[15] + 4u + ((uint32_t)off << 12u)) | 1u;
-        c->r[15] += 2u;
+        c->r[14] = (c->r[15] + 2u + ((uint32_t)off << 12u)) | 1u;
         return 3;
     }
 
-    /* BL second halfword: 11111 */
+    /* BL second halfword: 11111. LR = instruction address of the pair + 4
+     * (r15 already points there), LSB 1. */
     if ((instr & 0xF800u) == 0xF800u) {
         int32_t off = (int32_t)(instr & 0x7FFu);
         off = (off << 21) >> 21;
         uint32_t target = c->r[14] + ((uint32_t)off << 1u);
-        c->r[14] = (c->r[15] + 2u) | 1u;
+        c->r[14] = c->r[15] | 1u;
         c->r[15] = target & ~1u;
         return 4;
     }
 
-    /* undefined */
-    c->r[15] += 2u;
+    /* undefined (treated as NOP: documented) */
     return 2;
 }
 
@@ -1013,7 +1017,13 @@ uint32_t gba_cpu_step(gba_t *g)
     }
 
     if (c->halted) {
-        if ((g->mem.if_reg & g->mem.ie) != 0u)
+        uint32_t pending = (uint32_t)(g->mem.if_reg & g->mem.ie);
+        /* IntrWait/VBlankIntrWait wake only on the requested flags;
+         * plain HALT wakes on any enabled interrupt. */
+        int wake = c->intr_wait_active
+                       ? (pending & c->intr_wait_flags) != 0u
+                       : pending != 0u;
+        if (wake)
             c->halted = 0;
         return 4;
     }

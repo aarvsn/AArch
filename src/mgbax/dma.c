@@ -15,7 +15,7 @@ void gba_dma_reset(gba_dma *d)
 
 uint16_t gba_dma_read_ctrl(gba_dma *d, uint32_t addr)
 {
-    uint8_t ch = (uint8_t)((addr >> 4) & 3u);
+    uint8_t ch = (uint8_t)(((addr - 0x040000B0u) / 12u) & 3u);
     uint32_t off = addr - (0x040000B0u + (uint32_t)ch * 12u);
     switch (off) {
     case 0: return (uint16_t)(d->sad[ch] & 0xFFFFu);
@@ -62,7 +62,7 @@ static uint32_t dma_transfer(gba_t *g, int ch)
     }
     d->sad[ch] = sad;
     if (dst_reload)
-        d->dad[ch] = d->dad[ch]; /* reload source value kept in dad latch */
+        d->dad[ch] = d->dad_latch[ch]; /* DST_RELOAD: restore enabled DAD */
     else
         d->dad[ch] = dad;
     d->count[ch] = (uint16_t)(count & 0xFFFFu);
@@ -99,7 +99,7 @@ uint32_t gba_dma_run(gba_t *g, uint16_t trigger_flags)
 
 void gba_dma_write(gba_t *g, uint32_t addr, uint16_t v)
 {
-    uint8_t ch = (uint8_t)((addr >> 4) & 3u);
+    uint8_t ch = (uint8_t)(((addr - 0x040000B0u) / 12u) & 3u);
     uint32_t off = addr - (0x040000B0u + (uint32_t)ch * 12u);
     switch (off) {
     case 0: g->dma.sad[ch] = (g->dma.sad[ch] & 0xFFFF0000u) | v; return;
@@ -121,6 +121,7 @@ void gba_dma_write(gba_t *g, uint32_t addr, uint16_t v)
         if (!(old & 0x8000u) && (v & 0x8000u)) {
             g->dma.enabled[ch] = 1;
             g->dma.count[ch] = g->dma.count_latch[ch];
+            g->dma.dad_latch[ch] = g->dma.dad[ch];
             if (((v >> 12) & 3u) == 0u) {
                 uint32_t cycles = dma_transfer(g, ch);
                 g->total_cycles += cycles;

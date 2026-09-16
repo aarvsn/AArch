@@ -35,8 +35,10 @@ uint8_t gba_cart_read8(gba_cart *c, uint32_t addr)
     uint32_t region = addr >> 24;
     if (region == 0x0Eu || region == 0x0Fu)
         return c->sram[addr & 0xFFFFu];
-    if (addr < c->rom_size)
-        return c->rom[addr];
+    /* ROM regions 0x08-0x0D share a 32 MiB window */
+    uint32_t off = addr & 0x01FFFFFFu;
+    if (off < c->rom_size)
+        return c->rom[off];
     return 0x00u; /* open bus beyond ROM: documented simplification */
 }
 

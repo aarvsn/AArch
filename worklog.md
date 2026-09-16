@@ -138,3 +138,125 @@ Stage Summary:
 - SNES milestone complete: 156 tests total passing, smoke checks pass.
 - Known limitations documented: S-SMP/DSP stub, no HDMA, PPU modes 2-6,
   color math, windows, mosaic unimplemented.
+
+---
+Task ID: 5
+Agent: main (Super Z)
+Task: mgbax GBA core completion + full test suite bring-up
+
+Work Log:
+- Baseline verification: repo contained substantial uncommitted GBA work that
+  had NEVER been built or run (worklog had no GBA entry; tests/mgbax/*.c were
+  empty stubs; the test binary did not link - t_register_mgbax undefined).
+- Fixed build blockers: timer.c missing <string.h> + sign-compare; swi.c
+  wrong function name (irq_dispatch_return), missing <stdlib.h>, dead code.
+- Core bugs found and fixed (each verified by a regression test):
+  * cart.c: ROM reads used the full 32-bit address without stripping the
+    region base - the CPU fetched open-bus zeros and could never boot. Now
+    masks the 32 MiB window (addr & 0x01FFFFFF).
+  * cpu.c: gba_cpu_step pre-advances PC, but EVERY handler advanced PC
+    again at its end - every instruction double-advanced and skipped its
+    successor. Removed ~40 handler-end bumps; branches assign PC directly.
+  * cpu.c: Thumb format 2 (add/sub), format 4 (ALU) and format 6/7
+    (register-offset load/store) had Rd and Rm fields swapped.
+  * cpu.c: Thumb 011-group decode used (instr>>11)&3 (bits 12-11) instead
+    of (instr>>10)&3 (L=bit11, B=bit10) - LDR-word executed as STRB,
+    STRB as LDR; offset scaling now keyed off the B bit (byte: imm,
+    word: imm*4).
+  * cpu.c: hi-reg/BX guard tested bit11; format 5 is 0x4400-0x47FF
+    (bits[15:10] = 010001). All hi-reg ops and BX were decoding as NOPs.
+  * cpu.c: ARM operand2 PC reads were 4 too low (immediate shift reads
+    instr+8, register-specified shift reads instr+12); LDR/STR Rn=PC base
+    was instr+4 instead of instr+8; LDM DA first-address off by one word;
+    LDM{PC} no longer interworks (ARMv4T); SBC borrow compare now 64-bit
+    (b+borrow wraps when b=0xFFFFFFFF); sub_with_carry edge case fixed.
+  * cpu.c: BL second halfword LR was 2 over (LR = pair address + 4).
+  * swi.c/gba.c: HLE IRQ dispatcher did not save the interrupted PC or
+    CPSR - the "return" computed PC from the game's stale LR. Rewritten to
+    the hardware contract: switch to IRQ mode, CPSR->SPSR_irq, push
+    {r0-r3,r12,lr=next+4} on the IRQ stack, BIOS return sentinel, restore
+    CPSR from SPSR on return. Power-on now initializes BIOS-equivalent
+    stacks (SP_irq=$03007FA0, SP_svc=$03007FE0, SP_sys=$03007F00).
+  * cpu.c: IntrWait/Halt wake conditions split (IntrWait wakes only on the
+    requested IF flags; Halt on any enabled IRQ).
+  * dma.c: channel decode used (addr>>4)&3 which is wrong for the 12-byte
+    register stride - ch0 decoded as ch3 and all register offsets were
+    garbage. Now ((addr-0x040000B0)/12)&3. IO dispatch window corrected to
+    [0xB0,0xE0) (was [0xB8,0xE0)). DST_RELOAD now restores a latched DAD
+    (dad_latch added to state + serialization).
+  * apu.c: frequency timer advanced once per CPU step call instead of per
+    cycle; register interface used wrong addresses (0x72/0x7C are sweep/
+    noise regs; freq/restart live at 0x64/0x6C, envelope/volume at
+    0x60/0x68/0x78); restart now loads volume/duty phase.
+  * ppu.c: sprite tile fetch masked tile_off with 0xFFFF, truncating the
+    OBJ region at VRAM 0x10000; now uses the 0x1FFFF mask with the
+    0x18000 mirror. Affine BG limit comparison sign fixed.
+  * mem.c: gba_bus_read32 performed the unaligned rotation itself AND the
+    CPU rotated again; the bus now reads word-aligned and only the CPU
+    applies the LDR rotation.
+- Common: ALL FOUR cores' save_state wrote partial bytes before flagging
+  overflow, violating the "nothing written on EMU_ENOSPACE" contract.
+  All four now pre-check capacity against state_size() (regression-tested
+  for mgbax; mgbx/nes/snes tests still pass).
+- Tests: rewrote tests/mgbax/arm.c (the old file had never executed and
+  contained many wrong encodings) and wrote thumb.c, mem.c, timer.c,
+  dma.c, ppu.c, state.c + the t_register_mgbax aggregator. Every encoding
+  hand-assembled from the ARM ARM; expectations derived from the spec.
+- Result: 234 tests total, 0 failed assertions.
+
+Stage Summary:
+- mgbax milestone complete: builds clean, all suites green, 234 tests.
+- 15+ core defects fixed; each has a regression test that failed first.
+
+---
+Task ID: 6
+Agent: main (Super Z)
+Task: Audits (UB/memory/warnings), portability, performance, docs, CI, final verification
+
+Work Log:
+- STEP 8 (audio determinism): added gba_ppu/frame_determinism_audio - two
+  state-identical cores run interleaved frames; framebuffer CRCs must match
+  per frame and the delivered stereo streams must be byte-identical. Also
+  covers: non-zero PSG output (duty 2, volume 7 -> 7168-amplitude samples),
+  sample-count bounds, stereo pairing, timer-IRQ dispatch with no handler
+  installed (CPU keeps running). Found+fixed en route: the APU IO dispatch
+  window was [0x80,0xB0) and missed the PSG registers at 0x60-0x7F (channel
+  could never be configured); buffer-cap artifacts in the test design.
+- STEP 10 (memory ownership): every allocation has one owner (cores own
+  their state buffers; cart owns its ROM copy; tests free every buffer).
+  LeakSanitizer reports zero leaks across the full suite and all smokes.
+- STEP 11 (UB audit): ASan+UBSan Debug build runs the full suite and all
+  four CLI smokes with exit 0, no runtime errors. Found+fixed en route:
+  tests/mgbx/cart.c wrote tiny[0x147] into a 0x80-byte array (OOB on the
+  stack); rewritten to build a full-size buffer and pass a truncated size.
+- STEP 12 (warnings): full tree builds with -Wall -Wextra -Wpedantic
+  -Wshadow -Wstrict-prototypes -Werror: zero warnings.
+- STEP 13/14 (tests): suite organized as tests/common (API lifecycle,
+  state contract) + tests/mgbx, tests/nes, tests/supersnes, tests/mgbax;
+  235 tests, 0 failed assertions.
+- STEP 15 (portability): static audit only (no ARM cross compiler, no
+  multilib in this environment - no false claims). Results: no `long` in
+  any core (only emu-cli's ftell, negative-checked); no bare `char`
+  arithmetic; no struct-pointer casts (no unaligned/aliasing risk); no
+  float/double in any core; fixed-width integers throughout; save states
+  serialize explicit little-endian bytes (host-endian independent).
+- STEP 16 (performance): emu-cli --benchmark, Release build, synthetic
+  NOP-loop ROMs, 600 frames, x86_64 Linux 2 CPUs: mgbx ~3470 fps,
+  beatle-nes-redux ~2510 fps, supersnes ~790 fps, mgbax ~300 fps.
+  Synthetic workload; relative indicator only.
+- STEP 17 (docs): README.md written - build options, CLI usage, public
+  interface, honest per-core accuracy notes and known limitations,
+  benchmark methodology. No marketing language.
+- STEP 19 (CI): .github/workflows/ci.yml - three configurations (Release,
+  Werror, ASan+UBSan): configure, build, ctest.
+- STEP 20 (final verification): deleted all build dirs; verified minimal
+  single-core build (mgbx only) passes; full clean Release build: 0
+  warnings, 235/235 tests; sanitizer suite exit 0; all four cores pass
+  --smoke under sanitizers; Werror build clean; save-state write + reload
+  and PPM framebuffer output verified via emu-cli.
+
+Stage Summary:
+- Framework complete at milestone 1: 4 cores, 235 tests green, ASan/UBSan
+  clean, -Werror clean, CI in place, docs truthful.
+- Remaining limitations are documented in README.md (S-SMP/DSP stub, FIFO
+  audio, scanline PPU approximations, mappers beyond 0/1/2/3/4, etc).

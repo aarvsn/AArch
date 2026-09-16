@@ -91,16 +91,12 @@ void gba_mem_write32(gba_t *g, uint32_t addr, uint32_t v)
     gba_mem_write16(g, addr + 2u, (uint16_t)(v >> 16));
 }
 
-/* CPU-side word read: unaligned word reads on the 16-bit system bus rotate */
+/* CPU-side word read: the access itself is word-aligned; the CPU applies
+ * the ROR-by-(addr&3)*8 rotation for unaligned LDR per the ARM7TDMI bus
+ * contract (see cpu.c). */
 uint32_t gba_bus_read32(gba_t *g, uint32_t addr)
 {
-    uint32_t v = gba_mem_read32(g, addr);
-    uint32_t un = addr & 3u;
-    if (un != 0u && ((addr >> 24) == 0x08u || (addr >> 24) == 0x02u ||
-                     (addr >> 24) == 0x03u)) {
-        v = (v >> (un * 8u)) | (v << (32u - un * 8u));
-    }
-    return v;
+    return gba_mem_read32(g, addr & ~3u);
 }
 
 uint16_t gba_bus_read16(gba_t *g, uint32_t addr)
@@ -120,11 +116,11 @@ uint16_t gba_io_read16(gba_t *g, uint32_t addr)
     addr &= 0x3FFu;
     if (addr < 0x0040u)
         return gba_ppu_io_read16(g, 0x04000000u + addr);
-    if (addr >= 0x00B8u && addr < 0x00E0u)
+    if (addr >= 0x00B0u && addr < 0x00E0u)
         return gba_dma_read_ctrl(&g->dma, 0x04000000u + addr);
     if (addr >= 0x0100u && addr < 0x0110u)
         return gba_timers_read(&g->timers, 0x04000000u + addr);
-    if (addr >= 0x0080u && addr < 0x00B8u)
+    if (addr >= 0x0060u && addr < 0x00B0u)
         return gba_apu_io_read16(&g->apu, 0x04000000u + addr);
     if (addr == 0x0130u) {
         /* KEYINPUT: active-low */
@@ -162,7 +158,7 @@ void gba_io_write16(gba_t *g, uint32_t addr, uint16_t v)
         gba_ppu_io_write16(g, 0x04000000u + addr, v);
         return;
     }
-    if (addr >= 0x00B8u && addr < 0x00E0u) {
+    if (addr >= 0x00B0u && addr < 0x00E0u) {
         gba_dma_write(g, 0x04000000u + addr, v);
         return;
     }
@@ -170,7 +166,7 @@ void gba_io_write16(gba_t *g, uint32_t addr, uint16_t v)
         gba_timers_write(g, 0x04000000u + addr, v);
         return;
     }
-    if (addr >= 0x0080u && addr < 0x00B8u) {
+    if (addr >= 0x0060u && addr < 0x00B0u) {
         gba_apu_io_write16(&g->apu, 0x04000000u + addr, v);
         return;
     }

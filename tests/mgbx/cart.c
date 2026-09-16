@@ -166,9 +166,11 @@ static void cart_truncated_rom(void)
 {
     gb_cart cart;
     gb_cart_init(&cart);
-    uint8_t tiny[0x80] = { 0 };
+    /* the buffer is large enough to build a header, but the ROM passed to
+     * the loader is truncated before the header is complete */
+    uint8_t tiny[0x150] = { 0 };
     tiny[0x147] = GB_CART_ROM_ONLY;
-    T_CHECK_EQ(gb_cart_load(&cart, tiny, sizeof tiny), EMU_EBADROM);
+    T_CHECK_EQ(gb_cart_load(&cart, tiny, 0x80), EMU_EBADROM);
     gb_cart_free(&cart);
 }
 

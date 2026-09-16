@@ -76,3 +76,33 @@ Bugs discovered and fixed during test bring-up:
 Stage Summary:
 - mgbx milestone complete: build clean, 74/74 tests pass, emu-cli smoke checks pass.
 - Test count baseline established: 74 tests total.
+
+---
+Task ID: 3
+Agent: main (Super Z)
+Task: beatle-nes-redux NES core + tests
+
+Work Log:
+- Implemented 6502 (2A03) CPU: full official set, standard cycle tables with
+  page-cross penalties, interrupt model at instruction granularity.
+- Bus with RAM mirroring, PPU registers, OAM DMA (513-cycle stall), controller
+  shift register, iNES parser, mappers 0/1/2/3/4, dot-timed PPU (loopy v/t/x/w,
+  VBlank/NMI edges, BG fetch walk driving MMC3 A12 edges, simplified sprite
+  evaluation, sprite 0 hit), APU (2 pulse, triangle, noise, DMC without CPU
+  stall, frame sequencer), explicit save states.
+- 51 NES test assertions + common suite; total 125 tests passing.
+
+Bugs discovered and fixed during test bring-up (emulator side):
+- cpu.c: zero-page addressing helpers returned the operand's ADDRESS instead
+  of reading the operand byte (a_zp/a_zpx/a_zpy); a_abs/a_absx/a_absy read
+  only one operand byte and used the address as the low byte. All fixed.
+- cart.c: NROM 16K images did not mirror at $C000; MMC3 odd-address register
+  writes ($C001/$E001) were ignored by an over-broad even-address gate;
+  MMC3 IRQ reload now takes effect on the next A12 edge.
+- apu.c: frame sequencer treated absolute cycle targets as relative (events
+  fired at wrong rates); 5-step quarter/half frame assignment corrected.
+- nes.c: PRG RAM content was read in load_state but never written by
+  serialize (state blob corruption on load).
+
+Stage Summary:
+- NES milestone complete: build clean, all 125 tests pass, emu-cli smoke ok.

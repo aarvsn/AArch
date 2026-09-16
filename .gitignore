@@ -1,2 +1,11 @@
 skills/
 node_modules/
+upload/
+db/
+.env
+
+# build directories
+build*/
+cmake-build-*/
+*.o
+*.a

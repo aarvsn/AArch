@@ -63,7 +63,7 @@ uint8_t *nes_make_rom(uint32_t prg_banks, uint32_t chr_banks, uint8_t mapper,
     for (size_t i = 0; i < prg; i++)
         rom[16 + i] = (uint8_t)(i & 0xFFu);
     for (size_t i = 0; i < chr; i++)
-        rom[16 + prg + i] = (uint8_t)((i * 7 + 3) & 0xFFu);
+        rom[16 + prg + i] = (uint8_t)(((i >> 8) + 3) & 0xFFu);
     if (size_out)
         *size_out = size;
     return rom;

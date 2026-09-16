@@ -48,3 +48,31 @@ Work Log:
 Stage Summary:
 - Real baseline: empty repository. All code to be created from scratch.
 - Toolchain: gcc 14.2 + CMake 4.4.3; sanitizer-capable (gcc -fsanitize); no ARM cross-compiler.
+
+---
+Task ID: 2
+Agent: main (Super Z)
+Task: Build system + mgbx Game Boy core + tests
+
+Work Log:
+- Created CMake build (per-core options, warnings, sanitizer flags), include/emu/emu.h public API,
+  common util (CRC32, state serialization helpers), tiny test framework with suite registry.
+- Implemented mgbx: SM83 CPU (full official opcode set, flags, DAA, halt bug, EI delay, interrupt
+  dispatch), bus, MBC1/2/3/5 mappers + deterministic RTC, scanline PPU with dot timing, timer
+  (edge-based with DIV-write quirk), joypad, 4-channel PSG APU, OAM DMA with CPU stall,
+  explicit save states.
+- Wrote 74 tests (CPU/cart/mem/PPU/timer/APU/state + common lifecycle/state contract).
+
+Bugs discovered and fixed during test bring-up:
+- mgbx/cart.c: gb_cart_load never allocated cart RAM (writes silently dropped) -> allocate + zero.
+- mgbx/cart.c: RTC reads returned latched values before any latch -> return live until first latch.
+- mgbx/cpu.c: DAA in subtract mode ADDED the adjustment -> subtract.
+- mgbx/mem.c: WRAM echo addressing used addr-0xC000 (OOB for E000-FDFF) -> addr & 0x1FFF.
+- mgbx/cpu.c: OAM DMA passed raw index to OAM write (0xFE00-based) -> segfault -> add base.
+- mgbx/timer.c: TIMA tick bits off by one (half frequency) -> bits 7/1/3/5.
+- mgbx/timer.c: TMA reload happened in the same M-cycle as overflow -> delay one M-cycle.
+- tests/testutil.c: GB header fields written at absolute offsets from hdr pointer.
+
+Stage Summary:
+- mgbx milestone complete: build clean, 74/74 tests pass, emu-cli smoke checks pass.
+- Test count baseline established: 74 tests total.

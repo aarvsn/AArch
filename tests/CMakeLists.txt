@@ -65,6 +65,7 @@ endif()
 
 add_executable(emu-tests ${EMU_TEST_SOURCES})
 target_compile_definitions(emu-tests PRIVATE ${EMU_TEST_CORE_DEFS})
+target_include_directories(emu-tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(emu-tests PRIVATE emu_common ${EMU_TEST_CORE_LIBS})
 emu_apply_flags(emu-tests)
 

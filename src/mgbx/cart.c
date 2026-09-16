@@ -104,6 +104,15 @@ emu_result_t gb_cart_load(gb_cart *cart, const uint8_t *data, size_t size)
     if (has_ram_pin && cart->ram_size == 0)
         cart->ram_size = 8192; /* RAM pin present but size code 0: assume 8 KiB */
 
+    if (cart->ram_size > 0) {
+        cart->ram = malloc(cart->ram_size);
+        if (cart->ram == NULL) {
+            gb_cart_free(cart);
+            return EMU_EINVAL;
+        }
+        memset(cart->ram, 0, cart->ram_size);
+    }
+
     gb_cart_reset(cart);
     return EMU_OK;
 }
@@ -117,12 +126,13 @@ void gb_cart_reset(gb_cart *cart)
     cart->rom_bank = 1;
     cart->rtc_halt = 0;
     cart->rtc_latch_state = 0;
+    cart->rtc_latched_valid = 0;
     memset(cart->rtc, 0, sizeof cart->rtc);
     memset(cart->rtc_latched, 0, sizeof cart->rtc_latched);
     cart->rtc_divider = 0;
     if (cart->ram != NULL)
-        memset(cart->ram, 0xFF, cart->ram_size);
-    memset(cart->mbc2_ram, 0xFF, sizeof cart->mbc2_ram);
+        memset(cart->ram, 0, cart->ram_size);
+    memset(cart->mbc2_ram, 0, sizeof cart->mbc2_ram);
 }
 
 static uint32_t rom_bank_mask(const gb_cart *cart)
@@ -198,8 +208,11 @@ uint8_t gb_cart_read(gb_cart *cart, uint16_t addr)
                 cart->type == GB_CART_MBC3_RAM_BAT);
     int mbc5 = (cart->type >= GB_CART_MBC5 && cart->type <= GB_CART_MBC5_RUMBLE_RAM_BAT);
 
-    if (mbc3 && cart->bank2 >= 0x08u && cart->bank2 <= 0x0Cu)
-        return cart->rtc_latched[cart->bank2 - 0x08u];
+    if (mbc3 && cart->bank2 >= 0x08u && cart->bank2 <= 0x0Cu) {
+        uint8_t r = (uint8_t)(cart->bank2 - 0x08u);
+        /* reads return live registers until the first latch, latched after */
+        return cart->rtc_latched_valid ? cart->rtc_latched[r] : cart->rtc[r];
+    }
 
     if (cart->type == GB_CART_MBC2 || cart->type == GB_CART_MBC2_BAT)
         return (uint8_t)(0xF0u | (cart->mbc2_ram[addr & 0x1FFu] & 0x0Fu));
@@ -278,6 +291,7 @@ void gb_cart_write(gb_cart *cart, uint16_t addr, uint8_t v)
                 cart->rtc_latch_state = 1;
             } else if (v == 0x01u && cart->rtc_latch_state == 1) {
                 memcpy(cart->rtc_latched, cart->rtc, sizeof cart->rtc);
+                cart->rtc_latched_valid = 1;
                 cart->rtc_latch_state = 0;
             }
             return;

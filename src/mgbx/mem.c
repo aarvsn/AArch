@@ -14,8 +14,8 @@ uint8_t gb_bus_read(struct mgbx *gb, uint16_t addr)
         return gb_ppu_vram_read(&gb->ppu, addr);
     if (addr < 0xC000u)
         return gb_cart_read(&gb->cart, addr);
-    if (addr < 0xFE00u) { /* WRAM + echo */
-        return gb->mem.wram[(uint16_t)(addr - 0xC000u)];
+    if (addr < 0xFE00u) { /* WRAM (C000-DFFF) + echo (E000-FDFF) */
+        return gb->mem.wram[addr & 0x1FFFu];
     }
     if (addr < 0xFEA0u)
         return gb_ppu_oam_read(&gb->ppu, addr);
@@ -61,8 +61,8 @@ void gb_bus_write(struct mgbx *gb, uint16_t addr, uint8_t v)
         gb_cart_write(&gb->cart, addr, v);
         return;
     }
-    if (addr < 0xFE00u) { /* WRAM + echo */
-        gb->mem.wram[(uint16_t)(addr - 0xC000u)] = v;
+    if (addr < 0xFE00u) { /* WRAM (C000-DFFF) + echo (E000-FDFF) */
+        gb->mem.wram[addr & 0x1FFFu] = v;
         return;
     }
     if (addr < 0xFEA0u) {

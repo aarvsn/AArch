@@ -226,6 +226,7 @@ static void mgbx_serialize(struct mgbx *gb, emu_state_writer *w)
     sw_u16(w, cart->rom_bank);
     sw_u8(w, cart->rtc_halt);
     sw_u8(w, cart->rtc_latch_state);
+    sw_u8(w, cart->rtc_latched_valid);
     sw_mem(w, cart->rtc, sizeof cart->rtc);
     sw_mem(w, cart->rtc_latched, sizeof cart->rtc_latched);
     sw_u64(w, cart->rtc_divider);
@@ -339,6 +340,7 @@ static void mgbx_deserialize(struct mgbx *gb, emu_state_reader *r)
     cart->rom_bank = sr_u16(r);
     cart->rtc_halt = sr_u8(r);
     cart->rtc_latch_state = sr_u8(r);
+    cart->rtc_latched_valid = sr_u8(r);
     sr_mem(r, cart->rtc, sizeof cart->rtc);
     sr_mem(r, cart->rtc_latched, sizeof cart->rtc_latched);
     cart->rtc_divider = sr_u64(r);
@@ -376,7 +378,9 @@ static emu_result_t mgbx_save_state(emu_core_t *core, uint8_t *buf, size_t cap)
 static emu_result_t mgbx_load_state(emu_core_t *core, const uint8_t *buf, size_t size)
 {
     struct mgbx *gb = (struct mgbx *)core;
-    if (buf == NULL || size < 12)
+    if (buf == NULL || size == 0)
+        return EMU_EINVAL;
+    if (size < 12)
         return EMU_EBADSTATE;
     if (emu_le32(buf) != EMU_STATE_MAGIC ||
         emu_le32(buf + 4) != EMU_STATE_VERSION ||

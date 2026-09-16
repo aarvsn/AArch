@@ -174,13 +174,16 @@ static void daa(gb_cpu *c)
             adjust |= 0x60u;
             c->f |= FC;
         }
+        a = (uint8_t)(a + adjust);
     } else {
         if (c->f & FH)
             adjust |= 0x06u;
-        if (c->f & FC)
+        if (c->f & FC) {
             adjust |= 0x60u;
+            c->f |= FC;
+        }
+        a = (uint8_t)(a - adjust);
     }
-    a = (uint8_t)(a + adjust);
     c->f &= (uint8_t)~FH;
     if (a == 0)
         c->f |= FZ;
@@ -640,7 +643,8 @@ uint32_t gb_cpu_step(struct mgbx *gb)
 
     /* OAM DMA: one M-cycle per call, one byte per M-cycle */
     if (gb->mem.dma_active) {
-        gb_ppu_oam_write(&gb->ppu, gb->mem.dma_index, gb->mem.dma_value);
+        gb_ppu_oam_write(&gb->ppu, (uint16_t)(0xFE00u + gb->mem.dma_index),
+                         gb->mem.dma_value);
         gb->mem.dma_index++;
         if (gb->mem.dma_index >= 160) {
             gb->mem.dma_active = 0;

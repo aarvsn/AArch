@@ -1,8 +1,9 @@
 /*
  * mgbx timer: 16-bit internal counter clocked at 1 MHz (per M-cycle).
- *   DIV  = counter >> 6 (increments every 256 T-cycles)
- *   TIMA tick bit (falling edge): 4096 Hz -> bit 8, 262144 Hz -> bit 2,
- *   65536 Hz -> bit 4, 16384 Hz -> bit 6 of the M-cycle counter.
+ *   DIV  = counter >> 6 (increments every 256 T-cycles = 64 M-cycles)
+ *   TIMA ticks on falling edge of counter bit: 4096 Hz -> bit 7,
+ *   262144 Hz -> bit 1, 65536 Hz -> bit 3, 16384 Hz -> bit 5.
+ *   (A bit N falls every 2^(N+1) M-cycles.)
  * Overflow: TIMA wraps to 0, reloads TMA and raises the timer interrupt
  * after a 4 T-cycle delay. DIV writes reset the counter and can trigger a
  * TIMA falling edge (documented DMG quirk).
@@ -11,7 +12,7 @@
 
 enum { DIV_ADDR = 0xFF04, TIMA_ADDR = 0xFF05, TMA_ADDR = 0xFF06, TAC_ADDR = 0xFF07 };
 
-static const uint16_t tick_bit[4] = { 1u << 8, 1u << 2, 1u << 4, 1u << 6 };
+static const uint16_t tick_bit[4] = { 1u << 7, 1u << 1, 1u << 3, 1u << 5 };
 
 static int tac_enabled(const gb_timer *tm)
 {
@@ -52,19 +53,18 @@ void gb_timer_step(struct mgbx *gb, uint32_t t_cycles)
     gb_timer *tm = &gb->timer;
     /* called once per M-cycle with t_cycles == 4 */
     (void)t_cycles;
+
+    /* delayed reload from an overflow one M-cycle ago */
+    if (tm->tima_reload != 0) {
+        tm->tima_reload = 0;
+        tm->tima = tm->tma;
+        gb_request_interrupt(gb, 2);
+    }
+
     uint16_t old = tm->counter;
     uint16_t now = (uint16_t)(old + 1);
     tm->counter = now;
     timer_tick_edge(gb, old, now);
-
-    if (tm->tima_reload != 0) {
-        tm->tima_reload++;
-        if (tm->tima_reload > 1) { /* one M-cycle delay elapsed */
-            tm->tima = tm->tma;
-            tm->tima_reload = 0;
-            gb_request_interrupt(gb, 2);
-        }
-    }
 }
 
 uint8_t gb_timer_read(gb_timer *tm, uint16_t addr)

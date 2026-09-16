@@ -32,14 +32,15 @@ uint8_t *gb_make_rom(uint32_t banks, uint8_t cart_type, uint8_t ram_code,
 
     uint8_t *hdr = &rom[0x0134];
     memcpy(hdr, "EMUFWTEST", 9);      /* 0x134 title */
-    hdr[0x147] = cart_type;           /* cartridge type */
+    /* header offsets are relative to 0x134 */
+    hdr[0x147 - 0x134] = cart_type;   /* 0x147 cartridge type */
     /* 0x148 ROM size code: log2(size / 32768) */
     uint8_t rom_code = 0;
     while ((0x8000u << rom_code) < size)
         rom_code++;
-    hdr[0x148] = rom_code;
-    hdr[0x149] = ram_code;
-    hdr[0x14D] = 0x00;                /* header checksum not validated (no boot ROM) */
+    hdr[0x148 - 0x134] = rom_code;
+    hdr[0x149 - 0x134] = ram_code;
+    hdr[0x14D - 0x134] = 0x00;        /* 0x14D header checksum (not validated) */
     if (size_out)
         *size_out = size;
     return rom;
@@ -79,7 +80,8 @@ uint8_t *snes_make_lorom(uint32_t banks, size_t *size_out)
 
     /* SNES header at LoROM location: file offset 0x7FC0 == bank 0, 0x7FC0. */
     uint8_t *hdr = &rom[0x7FC0];
-    memcpy(hdr, "EMUFW           ", 21);   /* title 21 bytes */
+    memcpy(hdr, "EMUFW", 5);        /* title (21 bytes): name + spaces */
+    memset(&hdr[5], 0x20, 16);
     hdr[0x15] = 0x20;   /* 0x7FD5 mapping: LoROM, slow */
     hdr[0x16] = 0x00;   /* 0x7FD6 chips: ROM only */
     hdr[0x17] = 0x08;   /* 0x7FD7 ROM size: log2 => 0x08 = 256 KiB */

@@ -21,6 +21,25 @@
 typedef const emu_core_vtable_t *(*core_lookup_fn)(void);
 typedef uint8_t *(*rom_maker_fn)(size_t *size_out);
 
+/* adapters: common suite uses default ROM configurations per system */
+#if EMU_BUILD_MGBX
+#include "../testutil.h"
+#include "mgbx/mgbx.h"
+static uint8_t *rom_gb(size_t *sz) { return gb_make_rom(4, GB_CART_ROM_ONLY, 0, sz); }
+#endif
+#if EMU_BUILD_BEATLE_NES_REDUX
+#include "../testutil.h"
+static uint8_t *rom_nes(size_t *sz) { return nes_make_rom(2, 1, 0, 0, sz); }
+#endif
+#if EMU_BUILD_SUPERSNES
+#include "../testutil.h"
+static uint8_t *rom_snes(size_t *sz) { return snes_make_lorom(16, sz); }
+#endif
+#if EMU_BUILD_MGBAX
+#include "../testutil.h"
+static uint8_t *rom_gba(size_t *sz) { return gba_make_rom(0x1000, 0x00, sz); }
+#endif
+
 static uint32_t fb_crc(emu_core_t *c)
 {
     uint32_t w = 0, h = 0;
@@ -187,7 +206,7 @@ static void t_repeated_cycles(core_lookup_fn lookup, rom_maker_fn make_rom)
     T_SUITE_END
 
 #if EMU_BUILD_MGBX
-DEFINE_STATE_SUITE(mgbx, emu_core_mgbx, gb_make_rom)
+DEFINE_STATE_SUITE(mgbx, emu_core_mgbx, rom_gb)
 void t_register_st_mgbx(void)
 {
     static const t_suite s = { "st_mgbx", st_mgbx_tests,
@@ -197,7 +216,7 @@ void t_register_st_mgbx(void)
 #endif
 
 #if EMU_BUILD_BEATLE_NES_REDUX
-DEFINE_STATE_SUITE(nes, emu_core_beatle_nes_redux, nes_make_rom)
+DEFINE_STATE_SUITE(nes, emu_core_beatle_nes_redux, rom_nes)
 void t_register_st_nes(void)
 {
     static const t_suite s = { "st_nes", st_nes_tests,
@@ -207,7 +226,7 @@ void t_register_st_nes(void)
 #endif
 
 #if EMU_BUILD_SUPERSNES
-DEFINE_STATE_SUITE(snes, emu_core_supersnes, snes_make_lorom)
+DEFINE_STATE_SUITE(snes, emu_core_supersnes, rom_snes)
 void t_register_st_snes(void)
 {
     static const t_suite s = { "st_snes", st_snes_tests,
@@ -217,7 +236,7 @@ void t_register_st_snes(void)
 #endif
 
 #if EMU_BUILD_MGBAX
-DEFINE_STATE_SUITE(gba, emu_core_mgbax, gba_make_rom)
+DEFINE_STATE_SUITE(gba, emu_core_mgbax, rom_gba)
 void t_register_st_gba(void)
 {
     static const t_suite s = { "st_gba", st_gba_tests,

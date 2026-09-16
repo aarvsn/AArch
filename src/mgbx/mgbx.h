@@ -64,6 +64,7 @@ typedef struct {
     /* MBC3 RTC (deterministic: driven by emulation time, not wall clock) */
     uint8_t rtc_halt;
     uint8_t rtc_latch_state; /* latch protocol: write 0x00 then 0x01 */
+    uint8_t rtc_latched_valid;
     uint8_t rtc[5];          /* sec min hr dl dh */
     uint8_t rtc_latched[5];
     uint64_t rtc_divider;    /* T-cycles accumulated; 1 s = 4194304 */

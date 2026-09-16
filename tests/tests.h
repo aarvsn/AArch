@@ -54,16 +54,19 @@ void t_check_str(const char *got, const char *want, const char *what,
 
 /* Suite declaration helpers: each suite file exposes a register function. */
 #define T_SUITE_BEGIN(name) \
-    static const t_test name##_tests[]; \
-    void t_register_##name(void) { \
-        static const t_suite suite = { #name, name##_tests, \
-                                       sizeof(name##_tests)/sizeof(name##_tests[0]) }; \
-        t_add_suite(&suite); \
-    } \
     static const t_test name##_tests[] = {
 
 #define T_SUITE_END \
     { NULL, NULL } };
+
+/* Registration function for a suite declared with T_SUITE_BEGIN(name). */
+#define T_SUITE_REG(name)                                                     \
+    void t_register_##name(void) {                                            \
+        static const t_suite s = { #name, name##_tests,                       \
+                                   sizeof name##_tests /                      \
+                                       sizeof name##_tests[0] };              \
+        t_add_suite(&s);                                                      \
+    }
 
 /* Core enablement macros (defined by CMake for enabled cores). */
 #if defined(__cplusplus)

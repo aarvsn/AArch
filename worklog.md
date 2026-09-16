@@ -106,3 +106,35 @@ Bugs discovered and fixed during test bring-up (emulator side):
 
 Stage Summary:
 - NES milestone complete: build clean, all 125 tests pass, emu-cli smoke ok.
+
+---
+Task ID: 4
+Agent: main (Super Z)
+Task: supersnes SNES core + tests
+
+Work Log:
+- Implemented 65C816 CPU: full official set, emulation/native modes (XCE),
+  8/16-bit M/X widths, direct page with emulation high-byte forcing, long
+  addressing, decimal ADC/SBC, MVN/MVP, WAI/STP, COP/BRK vectors, PEA/PEI/PER,
+  TRB/TSB, stack emulation quirks. Cycle counts are documented approximations.
+- Memory map (WRAM mirrors, PPU/APU/CPU-I/O regions), LoROM/HiROM cart with
+  score-based header detection, general-purpose DMA (modes 0-3), hardware
+  multiply/divide, controller auto-read, PPU modes 0/1/7 + sprites with
+  per-line rendering, explicit save states.
+- S-SMP/DSP audio = documented stub (ports answer fixed values; silent).
+
+Bugs discovered and fixed during test bring-up (emulator side):
+- snes.c: power_on re-initialized the cartridge after load, wiping the ROM.
+- cpu.c: ALU group decode used (op>>5)&7 but the dispatch switched on
+  {0,2,4,6,8,A,C,E} - LDA/CMP/STA groups never matched. Fixed to 0..7.
+- cpu.c: (dp) opcode set initially wrong ($22/$42/... collide with COP/JSL);
+  correct set is $12/$32/$52/$72/$92/$B2/$D2/$F2.
+- dma.c: B-bus writes used bank $21 instead of bank 0 ($210018 vs $002118).
+- ppu.c: rendered the line AFTER incrementing the line counter (off-by-one);
+  mode 7 background disabled by max_bg=0; VRAM write latch model corrected
+  to VMAIN bit7 semantics ($2118 latch / $2119 commit).
+
+Stage Summary:
+- SNES milestone complete: 156 tests total passing, smoke checks pass.
+- Known limitations documented: S-SMP/DSP stub, no HDMA, PPU modes 2-6,
+  color math, windows, mosaic unimplemented.

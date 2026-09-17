@@ -170,7 +170,9 @@ if(EMU_BUILD_FINALBURN)
 endif()
 
 if(EMU_BUILD_BEATLE_PSX)
-    emu_add_core(beatle_psx beatle-psx src/beatle-psx/psx.c)
+    emu_add_core(beatle_psx beatle-psx
+        src/beatle-psx/psx.c src/beatle-psx/cpu.c src/beatle-psx/gte.c
+        src/beatle-psx/gpu.c src/beatle-psx/hw.c)
 endif()
 if(EMU_BUILD_MDS_A)
     emu_add_core(mds_a mds-a src/mds-a/ds.c)
@@ -204,3 +206,10 @@ endif()
 if(EMU_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
+
+# ---- install ------------------------------------------------------------------
+
+if(EMU_BUILD_CLI)
+    install(TARGETS aarch RUNTIME DESTINATION bin)
+endif()
+install(FILES include/emu/emu.h DESTINATION include/emu)

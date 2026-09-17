@@ -1,12 +1,13 @@
 skills/
 node_modules/
 upload/
+download/
 db/
 .env
+tool-results/
 
 # build directories
 build*/
 cmake-build-*/
 *.o
 *.a
-tool-results/

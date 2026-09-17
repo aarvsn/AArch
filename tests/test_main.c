@@ -143,6 +143,12 @@ void t_register_finalburn_vdp(void);
 void t_register_finalburn_audio(void);
 void t_register_finalburn_state(void);
 #endif
+#if EMU_BUILD_BEATLE_PSX
+void t_register_beatle_psx_cpu(void);
+void t_register_beatle_psx_gte(void);
+void t_register_beatle_psx_gpu(void);
+void t_register_beatle_psx_state(void);
+#endif
 
 int main(void)
 {
@@ -168,6 +174,12 @@ int main(void)
     t_register_finalburn_vdp();
     t_register_finalburn_audio();
     t_register_finalburn_state();
+#endif
+#if EMU_BUILD_BEATLE_PSX
+    t_register_beatle_psx_cpu();
+    t_register_beatle_psx_gte();
+    t_register_beatle_psx_gpu();
+    t_register_beatle_psx_state();
 #endif
     return t_run_all();
 }

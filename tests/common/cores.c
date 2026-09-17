@@ -1,6 +1,8 @@
 /*
  * Skeleton-core contract tests: skeletons validate formats, reject bad
  * ones, and refuse to emulate (EMU_ENOTIMPL) rather than pretending.
+ * Cores upgraded beyond skeleton status lose their entries here as they
+ * gain dedicated suites (see tests/<core>/).
  */
 #include "tests.h"
 #include "emu/emu.h"
@@ -31,17 +33,6 @@ static void run_skel(const char *name, const uint8_t *good, size_t good_size,
     T_CHECK_EQ_U(vt->save_state(c, tiny, sizeof tiny), EMU_ENOTIMPL);
     T_CHECK_EQ_U(vt->load_state(c, tiny, sizeof tiny), EMU_ENOTIMPL);
     emu_core_destroy(c); /* regression: base.vtable must be set (NULL deref before fix) */
-}
-
-static void test_psx_skeleton(void)
-{
-    size_t size = 0x8000;
-    uint8_t *img = calloc(1, size);
-    uint8_t *bad = calloc(1, size);
-    memcpy(img, "PS-X EXE", 8);
-    run_skel("beatle-psx", img, size, bad, size);
-    free(img);
-    free(bad);
 }
 
 static void test_ds_skeleton(void)
@@ -88,7 +79,6 @@ static void test_n64_skeleton(void)
 }
 
 T_SUITE_BEGIN(skeletons)
-{ "psx_skeleton_contract", test_psx_skeleton },
 { "ds_skeleton_contract", test_ds_skeleton },
 { "32x_skeleton_contract", test_32x_skeleton },
 { "saturn_dc_skeleton_contract", test_saturn_dc_skeleton },

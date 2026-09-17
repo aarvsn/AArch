@@ -81,6 +81,13 @@ if(EMU_BUILD_FINALBURN)
 endif()
 
 if(EMU_BUILD_BEATLE_PSX)
+    list(APPEND EMU_TEST_SOURCES
+        psx/psxh.c
+        psx/cpu.c
+        psx/gte.c
+        psx/gpu.c
+        psx/state.c
+    )
     list(APPEND EMU_TEST_CORE_DEFS EMU_BUILD_BEATLE_PSX=1)
     list(APPEND EMU_TEST_CORE_LIBS core_beatle_psx)
 endif()

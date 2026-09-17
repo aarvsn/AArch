@@ -1,0 +1,28 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-test:
+    strategy:
+      matrix:
+        include:
+          - name: release
+            cmake: -DCMAKE_BUILD_TYPE=Release
+          - name: werror
+            cmake: -DCMAKE_BUILD_TYPE=Release -DEMU_WERROR=ON
+          - name: sanitizers
+            cmake: -DCMAKE_BUILD_TYPE=Debug -DEMU_SANITIZE_ADDRESS=ON -DEMU_SANITIZE_UNDEFINED=ON
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install CMake
+        run: pipx install cmake || sudo apt-get update && sudo apt-get install -y cmake
+      - name: Configure (${{ matrix.name }})
+        run: cmake -S . -B build-${{ matrix.name }} ${{ matrix.cmake }}
+      - name: Build
+        run: cmake --build build-${{ matrix.name }} -j
+      - name: Test
+        run: ctest --test-dir build-${{ matrix.name }} --output-on-failure

@@ -55,8 +55,14 @@ void gba_mem_write8(gba_t *g, uint32_t addr, uint8_t v)
     switch (region) {
     case 0x02: g->mem.ewram[addr & 0x3FFFFu] = v; break;
     case 0x03: g->mem.iwram[addr & 0x7FFFu] = v; break;
-    case 0x04:
-        break; /* 8-bit IO writes: handled at 16-bit level */
+    case 0x04: {
+        /* 8-bit IO writes: only the SOUNDFIFO A/B region accepts byte
+         * writes on hardware; other IO registers are 16-bit latches */
+        uint32_t off = addr & 0x3FFu;
+        if (off >= 0x060u && off < 0x0B0u)
+            gba_apu_io_write8(&g->apu, 0x04000000u + addr, v);
+        break;
+    }
     case 0x05: g->mem.pal[addr & 0x3FFu] = v; break;
     case 0x06: {
         uint32_t off = addr & 0x1FFFFu;
@@ -87,6 +93,18 @@ void gba_mem_write16(gba_t *g, uint32_t addr, uint16_t v)
 
 void gba_mem_write32(gba_t *g, uint32_t addr, uint32_t v)
 {
+    /* SOUNDFIFO A/B: a 32-bit store is a single 4-byte append event
+     * (the DMA request level is evaluated once, after the whole word) */
+    if ((addr & 3u) == 0u && (addr >> 24) == 0x04u && addr < 0x04000400u) {
+        uint32_t off = addr & 0x3FFu;
+        if (off >= 0x0A0u && off < 0x0B0u) {
+            int f = (int)((off >> 2) & 1u); /* 0A0/0A8 -> A, 0A4/0AC -> B */
+            gba_apu_fifo_write32(g, f, v);
+            if (g->apu.fifo_count[f] <= 16u)
+                gba_dma_fifo_request(g, f);
+            return;
+        }
+    }
     gba_mem_write16(g, addr, (uint16_t)(v & 0xFFFFu));
     gba_mem_write16(g, addr + 2u, (uint16_t)(v >> 16));
 }

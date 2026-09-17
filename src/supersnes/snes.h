@@ -109,24 +109,39 @@ void snes_apu_write(snes_apu *a, uint16_t addr, uint8_t v);
 /* ---- DMA (dma.c) ------------------------------------------------------------------ */
 
 typedef struct {
-    uint8_t params;          /* 43x0: transfer mode, direction */
+    uint8_t params;          /* 43x0: bit7 dir, bit6 indirect, bit4 fixed,
+                              * bit3 decrement, bits0-2 transfer mode */
     uint8_t bbus;            /* 43x1 */
-    uint16_t abus;           /* 43x2/3 */
+    uint16_t abus;           /* 43x2/3 (A2: table pointer for HDMA) */
     uint8_t abank;           /* 43x4 */
     uint16_t count;          /* 43x5/6 */
-    uint8_t ibank;           /* 43x7 (indirect, HDMA only; stored) */
-    uint8_t a2[3];           /* 43x8-A (HDMA table addr; stored) */
+    uint8_t ibank;           /* 43x7 (indirect bank) */
+    /* HDMA per-channel runtime state */
+    uint8_t hdma_finished;   /* table exhausted for this frame */
+    uint16_t hdma_lines_left;/* lines remaining in the current block */
+    uint8_t hdma_repeat;     /* repeat flag of the current block */
+    uint8_t hdma_xfer;       /* transfer on this line? */
+    uint8_t hdma_ind_loaded; /* indirect address captured for this block */
+    uint16_t hdma_ind_addr;
+    uint8_t hdma_ind_bank;
+    /* A2 backup: reloaded into abus/abank at V=0 (captured on writes) */
+    uint16_t hdma_reload_abus;
+    uint8_t hdma_reload_abank;
 } snes_dma_channel;
 
 typedef struct {
     snes_dma_channel ch[8];
     uint8_t mdmaen;          /* 420B */
-    uint8_t hdmaen;          /* 420C (stored, not implemented) */
+    uint8_t hdmaen;          /* 420C */
 } snes_dma;
 
 void snes_dma_reset(snes_dma *d);
 /* returns master cycles consumed by the transfer */
 uint32_t snes_dma_run(snes_t *s);
+/* HDMA: init_frame resets channel tables at V=0; hdma_line runs one
+ * per-scanline pass (called during the HBlank that precedes a line) */
+void snes_hdma_init_frame(snes_t *s);
+void snes_hdma_line(snes_t *s);
 
 /* ---- bus / memory map (mem.c) -------------------------------------------------------- */
 

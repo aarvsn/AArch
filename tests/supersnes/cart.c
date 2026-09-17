@@ -12,6 +12,7 @@
 void t_register_snes_cpu(void);
 void t_register_snes_cart(void);
 void t_register_snes_dma(void);
+void t_register_snes_hdma(void);
 void t_register_snes_ppu(void);
 void t_register_snes_state(void);
 
@@ -20,6 +21,7 @@ void t_register_supersnes(void)
     t_register_snes_cpu();
     t_register_snes_cart();
     t_register_snes_dma();
+    t_register_snes_hdma();
     t_register_snes_ppu();
     t_register_snes_state();
 }

@@ -42,6 +42,7 @@ if(EMU_BUILD_SUPERSNES)
         supersnes/cpu.c
         supersnes/cart.c
         supersnes/dma.c
+        supersnes/hdma.c
         supersnes/ppu.c
         supersnes/state.c
     )
@@ -57,6 +58,7 @@ if(EMU_BUILD_MGBAX)
         mgbax/timer.c
         mgbax/dma.c
         mgbax/ppu.c
+        mgbax/apu.c
         mgbax/state.c
     )
     list(APPEND EMU_TEST_CORE_DEFS EMU_BUILD_MGBAX=1)

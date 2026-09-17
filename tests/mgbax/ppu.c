@@ -189,9 +189,14 @@ static struct gba *mk_det_core(void)
     struct gba *g = mk_rom_core();
     if (g == NULL)
         return NULL;
-    /* square 1: duty 3, envelope volume 7, raw freq 0x400, restart */
-    gba_io_write16(g, 0x04000060u, 0xF080u); /* duty 2, env vol 7 */
+    /* square 1: duty 2, envelope volume 7 (at SOUND1CNT_H per spec), restart */
+    gba_io_write16(g, 0x04000060u, 2u << 6);
+    gba_io_write16(g, 0x04000062u, 7u << 12);
     gba_io_write16(g, 0x04000064u, 0x8400u);
+    /* PSG routing: master volume 7 both sides, ch1 enabled L+R */
+    gba_io_write16(g, 0x04000080u, 0x0077u | 0x0100u | 0x1000u);
+    gba_io_write16(g, 0x04000082u, 0x0002u); /* PSG 100% volume */
+    gba_io_write16(g, 0x04000084u, 0x0080u); /* SOUNDCNT_X master enable */
     gba_io_write16(g, 0x04000088u, 0x0800u); /* bias */
     /* mode 3 bitmap, BG2 on */
     gba_io_write16(g, 0x04000000u, 0x0403u);

@@ -185,6 +185,42 @@ static void gba_serialize(gba_t *g, emu_state_writer *w)
         sw_u16(w, g->timers.ctrl[i]);
         sw_u32(w, g->timers.prescaler[i]);
     }
+    sw_u8(w, g->timers.ovf_bits);
+
+    /* APU: sound control registers, FIFO channels, PSG state */
+    sw_u16(w, g->apu.soundbias);
+    sw_u16(w, g->apu.soundcnt_l);
+    sw_u16(w, g->apu.soundcnt_h);
+    sw_u8(w, g->apu.soundcnt_x);
+    for (int f = 0; f < 2; f++) {
+        sw_mem(w, g->apu.fifo[f], sizeof g->apu.fifo[f]);
+        sw_u8(w, g->apu.fifo_count[f]);
+        sw_u8(w, (uint8_t)g->apu.fifo_cur[f]);
+        sw_u8(w, g->apu.fifo_has[f]);
+    }
+    for (int i = 0; i < 2; i++) {
+        sw_u8(w, g->apu.sq_duty[i]);
+        sw_u8(w, g->apu.sq_env_vol[i]);
+        sw_u8(w, g->apu.sq_env_timer[i]);
+        sw_u8(w, g->apu.sq_volume[i]);
+        sw_u16(w, g->apu.sq_freq_timer[i]);
+        sw_u16(w, g->apu.sq_period[i]);
+        sw_u8(w, g->apu.sq_duty_pos[i]);
+        sw_u8(w, g->apu.sq_len[i]);
+        sw_u8(w, g->apu.sq_len_en[i]);
+        sw_u8(w, g->apu.sq_active[i]);
+    }
+    sw_u8(w, g->apu.noise_active);
+    sw_u8(w, g->apu.noise_len);
+    sw_u8(w, g->apu.noise_len_en);
+    sw_u8(w, g->apu.noise_env_vol);
+    sw_u8(w, g->apu.noise_volume);
+    sw_u8(w, g->apu.noise_width7);
+    sw_u32(w, g->apu.noise_timer);
+    sw_u32(w, g->apu.noise_period);
+    sw_u16(w, g->apu.noise_lfsr);
+    sw_u32(w, g->apu.sample_acc);
+
     sw_u32(w, g->ppu.frame);
     sw_u16(w, g->ppu.bgpa); sw_u16(w, (uint16_t)g->ppu.bgpb);
     sw_u16(w, (uint16_t)g->ppu.bgpc); sw_u16(w, (uint16_t)g->ppu.bgpd);
@@ -242,6 +278,41 @@ static void gba_deserialize(gba_t *g, emu_state_reader *r)
         g->timers.ctrl[i] = sr_u16(r);
         g->timers.prescaler[i] = sr_u32(r);
     }
+    g->timers.ovf_bits = sr_u8(r);
+
+    g->apu.soundbias = sr_u16(r);
+    g->apu.soundcnt_l = sr_u16(r);
+    g->apu.soundcnt_h = sr_u16(r);
+    g->apu.soundcnt_x = sr_u8(r);
+    for (int f = 0; f < 2; f++) {
+        sr_mem(r, g->apu.fifo[f], sizeof g->apu.fifo[f]);
+        g->apu.fifo_count[f] = sr_u8(r);
+        g->apu.fifo_cur[f] = (int8_t)sr_u8(r);
+        g->apu.fifo_has[f] = sr_u8(r);
+    }
+    for (int i = 0; i < 2; i++) {
+        g->apu.sq_duty[i] = sr_u8(r);
+        g->apu.sq_env_vol[i] = sr_u8(r);
+        g->apu.sq_env_timer[i] = sr_u8(r);
+        g->apu.sq_volume[i] = sr_u8(r);
+        g->apu.sq_freq_timer[i] = sr_u16(r);
+        g->apu.sq_period[i] = sr_u16(r);
+        g->apu.sq_duty_pos[i] = sr_u8(r);
+        g->apu.sq_len[i] = sr_u8(r);
+        g->apu.sq_len_en[i] = sr_u8(r);
+        g->apu.sq_active[i] = sr_u8(r);
+    }
+    g->apu.noise_active = sr_u8(r);
+    g->apu.noise_len = sr_u8(r);
+    g->apu.noise_len_en = sr_u8(r);
+    g->apu.noise_env_vol = sr_u8(r);
+    g->apu.noise_volume = sr_u8(r);
+    g->apu.noise_width7 = sr_u8(r);
+    g->apu.noise_timer = sr_u32(r);
+    g->apu.noise_period = sr_u32(r);
+    g->apu.noise_lfsr = sr_u16(r);
+    g->apu.sample_acc = sr_u32(r);
+
     g->ppu.frame = sr_u32(r);
     g->ppu.bgpa = (int16_t)sr_u16(r);
     g->ppu.bgpb = (int16_t)sr_u16(r);

@@ -18,6 +18,7 @@ void t_register_gba_mem(void);
 void t_register_gba_timer(void);
 void t_register_gba_dma(void);
 void t_register_gba_ppu(void);
+void t_register_gba_apu(void);
 void t_register_gba_state(void);
 
 /* Suite aggregator expected by the test runner. */
@@ -29,6 +30,7 @@ void t_register_mgbax(void)
     t_register_gba_timer();
     t_register_gba_dma();
     t_register_gba_ppu();
+    t_register_gba_apu();
     t_register_gba_state();
 }
 
@@ -68,11 +70,39 @@ static void perturb(struct gba *g)
     g->timers.reload[0] = 0xFFFEu;
     g->timers.counter[0] = 0xFFFEu;
     g->timers.ctrl[0] = 0x0080u;
+    g->timers.ovf_bits = 0x5u;
     g->dma.sad[0] = 0x02000000u;
     g->dma.dad[0] = 0x02000100u;
     g->dma.count[0] = 4u;
     g->dma.ctrl[0] = 0x8400u;
     g->dma.enabled[0] = 1u;
+    /* APU: registers, FIFO contents, PSG state */
+    g->apu.soundbias = 0x0800u;
+    g->apu.soundcnt_l = 0x77FFu;
+    g->apu.soundcnt_h = 0x000Cu;
+    g->apu.soundcnt_x = 0x80u;
+    for (int f = 0; f < 2; f++) {
+        for (int i = 0; i < 8; i++)
+            g->apu.fifo[f][i] = (uint8_t)(0x10u * (uint8_t)i + (uint8_t)f);
+        g->apu.fifo_count[f] = 8u;
+        g->apu.fifo_cur[f] = (int8_t)(-64 - f);
+        g->apu.fifo_has[f] = 1u;
+    }
+    g->apu.sq_duty[0] = 2u;
+    g->apu.sq_env_vol[0] = 7u;
+    g->apu.sq_volume[0] = 5u;
+    g->apu.sq_period[0] = 1024u;
+    g->apu.sq_freq_timer[0] = 100u;
+    g->apu.sq_duty_pos[0] = 3u;
+    g->apu.sq_active[0] = 1u;
+    g->apu.noise_active = 1u;
+    g->apu.noise_env_vol = 6u;
+    g->apu.noise_volume = 4u;
+    g->apu.noise_width7 = 1u;
+    g->apu.noise_period = 256u;
+    g->apu.noise_timer = 17u;
+    g->apu.noise_lfsr = 0x1234u;
+    g->apu.sample_acc = 123u;
     g->total_cycles = 0x1122334455667788ull;
 }
 
@@ -142,11 +172,36 @@ static void state_roundtrip_restores_everything(void)
     T_CHECK_EQ(g2->timers.reload[0], g1->timers.reload[0]);
     T_CHECK_EQ(g2->timers.counter[0], g1->timers.counter[0]);
     T_CHECK_EQ(g2->timers.ctrl[0], g1->timers.ctrl[0]);
+    T_CHECK_EQ(g2->timers.ovf_bits, g1->timers.ovf_bits);
     T_CHECK_EQ(g2->dma.sad[0], g1->dma.sad[0]);
     T_CHECK_EQ(g2->dma.dad[0], g1->dma.dad[0]);
     T_CHECK_EQ(g2->dma.count[0], g1->dma.count[0]);
     T_CHECK_EQ(g2->dma.ctrl[0], g1->dma.ctrl[0]);
     T_CHECK_EQ(g2->dma.enabled[0], g1->dma.enabled[0]);
+    /* APU: control registers, FIFOs, PSG */
+    T_CHECK_EQ(g2->apu.soundbias, g1->apu.soundbias);
+    T_CHECK_EQ(g2->apu.soundcnt_l, g1->apu.soundcnt_l);
+    T_CHECK_EQ(g2->apu.soundcnt_h, g1->apu.soundcnt_h);
+    T_CHECK_EQ(g2->apu.soundcnt_x, g1->apu.soundcnt_x);
+    for (int f = 0; f < 2; f++) {
+        T_CHECK(memcmp(g2->apu.fifo[f], g1->apu.fifo[f],
+                       sizeof g1->apu.fifo[f]) == 0);
+        T_CHECK_EQ(g2->apu.fifo_count[f], g1->apu.fifo_count[f]);
+        T_CHECK_EQ(g2->apu.fifo_cur[f], g1->apu.fifo_cur[f]);
+        T_CHECK_EQ(g2->apu.fifo_has[f], g1->apu.fifo_has[f]);
+    }
+    T_CHECK_EQ(g2->apu.sq_volume[0], g1->apu.sq_volume[0]);
+    T_CHECK_EQ(g2->apu.sq_period[0], g1->apu.sq_period[0]);
+    T_CHECK_EQ(g2->apu.sq_freq_timer[0], g1->apu.sq_freq_timer[0]);
+    T_CHECK_EQ(g2->apu.sq_duty_pos[0], g1->apu.sq_duty_pos[0]);
+    T_CHECK_EQ(g2->apu.sq_active[0], g1->apu.sq_active[0]);
+    T_CHECK_EQ(g2->apu.noise_active, g1->apu.noise_active);
+    T_CHECK_EQ(g2->apu.noise_volume, g1->apu.noise_volume);
+    T_CHECK_EQ(g2->apu.noise_width7, g1->apu.noise_width7);
+    T_CHECK_EQ(g2->apu.noise_period, g1->apu.noise_period);
+    T_CHECK_EQ(g2->apu.noise_timer, g1->apu.noise_timer);
+    T_CHECK_EQ(g2->apu.noise_lfsr, g1->apu.noise_lfsr);
+    T_CHECK_EQ(g2->apu.sample_acc, g1->apu.sample_acc);
     free(buf);
     emu_core_mgbax()->destroy(&g1->base);
     emu_core_mgbax()->destroy(&g2->base);

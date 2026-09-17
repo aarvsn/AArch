@@ -14,14 +14,18 @@ void gba_timers_reset(gba_timers *t)
     memset(t, 0, sizeof *t);
 }
 
+/* overflow notifications are consumed by the APU each step; reset clears */
+
 static void timer_overflow(gba_t *g, int ch)
 {
     g->timers.counter[ch] = g->timers.reload[ch];
+    g->timers.ovf_bits |= (uint8_t)(1u << ch); /* APU FIFO sampling clock */
     if (ch < 3 && (g->timers.ctrl[ch + 1u] & (1u << 2u))) {
         /* cascade into next channel */
         uint32_t v = (uint32_t)g->timers.counter[ch + 1u] + 1u;
         if (v > 0xFFFFu) {
             g->timers.counter[ch + 1u] = g->timers.reload[ch + 1u];
+            g->timers.ovf_bits |= (uint8_t)(1u << (ch + 1u));
             if (g->timers.ctrl[ch + 1u] & (1u << 6u))
                 gba_request_irq(g, (uint16_t)(0x0008u << (ch + 1u)));
         } else {

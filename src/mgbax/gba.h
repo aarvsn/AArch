@@ -151,6 +151,7 @@ typedef struct {
     uint16_t ctrl[4];
     uint32_t prescaler[4];   /* sub-tick accumulators */
     uint32_t tick_div[4];    /* cycles per tick: 1,64,256,1024 */
+    uint8_t ovf_bits;        /* overflow notifications (consumed by APU) */
 } gba_timers;
 
 void gba_timers_reset(gba_timers *t);
@@ -174,18 +175,31 @@ void gba_dma_reset(gba_dma *d);
 uint32_t gba_dma_run(gba_t *g, uint16_t trigger_flags);
 uint16_t gba_dma_read_ctrl(gba_dma *d, uint32_t addr);
 void gba_dma_write(gba_t *g, uint32_t addr, uint16_t v);
+/* services a sound-FIFO DMA request (trigger=3 channels, 4-word transfer) */
+void gba_dma_fifo_request(gba_t *g, int fifo);
 
 /* ---- APU (apu.c) --------------------------------------------------------------------------- */
 
+#define GBA_FIFO_DEPTH 32u /* bytes per hardware FIFO (8 x 32-bit entries) */
+
 typedef struct {
     uint16_t soundbias;
-    uint8_t squares_on;
-    /* PSG channel state (squares 1/2 + noise; FIFO channels unimplemented) */
+    uint16_t soundcnt_l;     /* PSG routing + per-side master volume */
+    uint16_t soundcnt_h;     /* PSG volume bits + FIFO A/B control */
+    uint8_t soundcnt_x;      /* bit7 = PSG master enable */
+    /* Direct-sound FIFO channels A/B */
+    uint8_t fifo[2][GBA_FIFO_DEPTH];
+    uint8_t fifo_count[2];   /* bytes queued */
+    int8_t fifo_cur[2];      /* sample popped on selected-timer overflow */
+    uint8_t fifo_has[2];     /* fifo_cur holds a real sample */
+    /* PSG channel state (squares 1/2 + noise) */
     uint8_t sq_duty[2], sq_env_vol[2], sq_env_timer[2], sq_volume[2];
     uint16_t sq_freq_timer[2], sq_period[2];
     uint8_t sq_duty_pos[2], sq_len[2], sq_len_en[2], sq_active[2];
     uint8_t noise_active, noise_len, noise_len_en, noise_env_vol;
-    uint16_t noise_timer, noise_period;
+    uint8_t noise_volume;    /* current output volume (loaded on restart) */
+    uint8_t noise_width7;
+    uint32_t noise_timer, noise_period; /* CPU cycles per LFSR shift */
     uint16_t noise_lfsr;
     uint32_t sample_acc;
     int16_t *out;
@@ -197,6 +211,10 @@ void gba_apu_reset(gba_apu *a);
 void gba_apu_step(gba_t *g, uint32_t cycles);
 uint16_t gba_apu_io_read16(gba_apu *a, uint32_t addr);
 void gba_apu_io_write16(gba_apu *a, uint32_t addr, uint16_t v);
+/* 8-bit FIFO writes (SOUNDFIFO A/B accept byte writes on hardware) */
+void gba_apu_io_write8(gba_apu *a, uint32_t addr, uint8_t v);
+/* raw 4-byte append used by the FIFO DMA path (no request generation) */
+void gba_apu_fifo_write32(gba_t *g, int fifo, uint32_t v);
 
 /* ---- HLE BIOS (swi.c) ------------------------------------------------------------------------ */
 

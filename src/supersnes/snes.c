@@ -171,6 +171,15 @@ static void snes_serialize(snes_t *s, emu_state_writer *w)
         sw_u8(w, s->dma.ch[i].abank);
         sw_u16(w, s->dma.ch[i].count);
         sw_u8(w, s->dma.ch[i].ibank);
+        sw_u8(w, s->dma.ch[i].hdma_finished);
+        sw_u16(w, s->dma.ch[i].hdma_lines_left);
+        sw_u8(w, s->dma.ch[i].hdma_repeat);
+        sw_u8(w, s->dma.ch[i].hdma_xfer);
+        sw_u8(w, s->dma.ch[i].hdma_ind_loaded);
+        sw_u16(w, s->dma.ch[i].hdma_ind_addr);
+        sw_u8(w, s->dma.ch[i].hdma_ind_bank);
+        sw_u16(w, s->dma.ch[i].hdma_reload_abus);
+        sw_u8(w, s->dma.ch[i].hdma_reload_abank);
     }
     sw_mem(w, s->apu.ports, sizeof s->apu.ports);
     sw_mem(w, s->cart.sram != NULL ? s->cart.sram : NULL, s->cart.sram_size);
@@ -226,6 +235,15 @@ static void snes_deserialize(snes_t *s, emu_state_reader *r)
         s->dma.ch[i].abank = sr_u8(r);
         s->dma.ch[i].count = sr_u16(r);
         s->dma.ch[i].ibank = sr_u8(r);
+        s->dma.ch[i].hdma_finished = sr_u8(r);
+        s->dma.ch[i].hdma_lines_left = sr_u16(r);
+        s->dma.ch[i].hdma_repeat = sr_u8(r);
+        s->dma.ch[i].hdma_xfer = sr_u8(r);
+        s->dma.ch[i].hdma_ind_loaded = sr_u8(r);
+        s->dma.ch[i].hdma_ind_addr = sr_u16(r);
+        s->dma.ch[i].hdma_ind_bank = sr_u8(r);
+        s->dma.ch[i].hdma_reload_abus = sr_u16(r);
+        s->dma.ch[i].hdma_reload_abank = sr_u8(r);
     }
     sr_mem(r, s->apu.ports, sizeof s->apu.ports);
     if (s->cart.sram != NULL && s->cart.sram_size > 0u)

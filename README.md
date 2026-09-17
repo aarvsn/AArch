@@ -7,8 +7,8 @@ Four independent cores plug into one small public interface:
 |---------------------|---------------------------|--------|
 | `mgbx`              | Game Boy / DMG            | CPU (SM83, full official set), MBC1/2/3/5 + RTC, scanline PPU, 4-channel PSG, timer, OAM DMA, save states |
 | `beatle-nes-redux`  | NES / Famicom             | 6502 (full official set), mappers 0/1/2/3/4, dot-timed PPU (loopy v/t/x, sprite 0 hit, MMC3 A12 IRQs), APU with DMC (no CPU stall), save states |
-| `supersnes`         | SNES (LoROM/HiROM)        | 65C816 (full official set, emulation/native, decimal mode), PPU modes 0/1/7 + sprites, GP DMA, hardware multiply/divide, save states |
-| `mgbax`             | Game Boy Advance          | ARM7TDMI ARM + Thumb (full official sets), HLE BIOS (no BIOS ROM bundled: SWI services + IRQ dispatcher), modes 0-4 text/affine/bitmap PPU + sprites, 4-channel DMA, timers, PSG (FIFO audio unimplemented), save states |
+| `supersnes`         | SNES (LoROM/HiROM)        | 65C816 (full official set, emulation/native, decimal mode), PPU modes 0/1/7 + sprites, GP DMA + HDMA (direct/indirect, repeat blocks), hardware multiply/divide, save states |
+| `mgbax`             | Game Boy Advance          | ARM7TDMI ARM + Thumb (full official sets), HLE BIOS (no BIOS ROM bundled: SWI services + IRQ dispatcher), modes 0-4 text/affine/bitmap PPU + sprites, 4-channel DMA, timers, PSG + direct-sound FIFO audio, save states |
 
 ## Building
 
@@ -59,7 +59,7 @@ without writing.
 ## Tests
 
 `tests/` contains one runner with suites per core plus common API/contract
-suites (235 tests). Every expected value is derived from the system
+suites (250 tests). Every expected value is derived from the system
 specification or hand-assembled instruction encodings — never from the
 emulator's own helper logic. The suite runs clean under ASan and UBSan.
 
@@ -72,13 +72,20 @@ Reported honestly, per core:
   subtleties; MBC3 RTC is deterministic (advances with emulation time).
 - **beatle-nes-redux**: DMC does not steal CPU cycles; sprite evaluation
   is simplified; PPU open bus and decay are not modeled.
-- **supersnes**: S-SMP/DSP audio is a documented stub (silent); no HDMA;
-  PPU modes 2-6, color math, windows and mosaic are unimplemented; cycle
-  counts are documented approximations.
-- **mgbax**: FIFO channel audio (direct sound) unimplemented; timing is
-  instruction-level with flat per-access cycle costs, not bus-cycle
-  accurate; no BIOS ROM is bundled (HLE BIOS layer instead); premultiplied
-  OBJ priority simplification (OBJ-over-BG handled OBJ-first).
+- **supersnes**: S-SMP/DSP audio is a documented stub (silent); PPU modes
+  2-6, color math, windows and mosaic are unimplemented; cycle counts are
+  documented approximations. HDMA is implemented (direct/indirect, repeat
+  blocks) but its transfer time is not subtracted from CPU execution, the
+  mode 2-4 register patterns use consecutive B-bus addresses, and the
+  first visible line uses reset-time register values (no V=0 HDMA pass).
+- **mgbax**: timing is instruction-level with flat per-access cycle costs,
+  not bus-cycle accurate; no BIOS ROM is bundled (HLE BIOS layer instead);
+  premultiplied OBJ priority simplification (OBJ-over-BG handled OBJ-first);
+  SOUNDBIAS DC offset is not applied to the digital output; APU envelope
+  decay and length counters are not clocked (volume fixed at restart value);
+  FIFO audio pop timing follows the selected timer, aliased by the fixed
+  32768 Hz output sampler. Envelope volumes follow the 4-bit register map
+  ($62/$68/$78 bits 12-15).
 
 ## Performance
 

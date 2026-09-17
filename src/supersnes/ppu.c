@@ -369,12 +369,17 @@ void snes_ppu_run(snes_t *s, uint32_t master_cycles)
             p->nmi_line = 0;
 
         if (p->dot >= 1364u) {
+            /* HBlank of the ending line: HDMA transfers for the upcoming
+             * line happen here, before that line is rasterized */
+            snes_hdma_line(s);
             if (p->line < 225u)
                 render_line(s); /* rasterize the line that is ending */
             p->dot = 0;
             p->line++;
-            if (p->line >= 262u)
+            if (p->line >= 262u) {
                 p->line = 0;
+                snes_hdma_init_frame(s); /* V=0: reload A2, reset tables */
+            }
         }
     }
 }

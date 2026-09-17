@@ -260,3 +260,85 @@ Stage Summary:
   clean, -Werror clean, CI in place, docs truthful.
 - Remaining limitations are documented in README.md (S-SMP/DSP stub, FIFO
   audio, scanline PPU approximations, mappers beyond 0/1/2/3/4, etc).
+
+---
+Task ID: 7
+Agent: main (Super Z)
+Task: Milestone 2a — mgbax direct-sound FIFO audio + APU save-state completeness
+
+Work Log:
+- Verified milestone-1 state after session restart: clean Release rebuild, 235/235
+  tests, ASan/UBSan clean (suite + 4 CLI smokes), -Werror clean. cmake reinstalled
+  (4.4.3 via pip; not on PATH after environment reset).
+- Implemented GBA direct-sound FIFO channels A/B in apu.c: 32-byte hardware FIFOs,
+  one byte popped per selected-timer (0/1) overflow, DMA request raised when the
+  queue drops to <= 16 bytes.
+- dma.c: gba_dma_fifo_request services trigger=3 channels (A: ch1/ch2, B: ch2/ch3,
+  highest priority first) with a 4-word fixed-destination transfer; count register
+  ignored per hardware contract.
+- mem.c: word stores to $40000A0-AF are single 4-byte FIFO append events (request
+  level evaluated once per event, not per halfword); 8-bit FIFO writes routed
+  through a new gba_apu_io_write8.
+- timer.c: overflow notifications (incl. cascade overflows) set timers.ovf_bits,
+  consumed by the APU each step — this is the FIFO sampling clock.
+- Mixing: SOUNDCNT_X bit7 gates PSG; SOUNDCNT_L per-channel routing + (v+1)/8
+  per-side master volume; SOUNDCNT_H PSG 25/50/100%; FIFO A/B 50/100% volume with
+  L/R enable routing; saturated int16 mix. SOUNDBIAS (DC offset) not applied —
+  documented.
+- Noise channel output implemented (was structurally present but silent): LFSR
+  shift clock 32*(R+1)<<S cycles, 15-bit/7-bit width modes, restart semantics.
+- Save states: APU state was NEVER serialized before (defect) — full APU +
+  timers.ovf_bits serialization added; state tests now perturb/verify APU fields.
+- BUG FOUND + FIXED (register map): square-1 envelope volume was read from
+  SOUND1CNT_L bits 12-14; per spec it is the 4-bit initial volume in
+  SOUND1CNT_H ($62) bits 12-15 (0x60 bits 12-14 are sweep-time). Square-2 and
+  noise volumes widened to 4 bits (0-15). Regression-covered by psg tests.
+- New suite tests/mgbax/apu.c: 10 tests (pop order, timer select, full-discard,
+  reset bits, DMA refill + channel eligibility, routing/volumes, master gate +
+  active-flag readback, 25/50/100% scaling, spec-derived LFSR walk, FIFO audio
+  determinism across cores). Existing determinism test updated to the register-
+  accurate setup.
+- Results: 241 tests, 0 failed assertions; ASan/UBSan suite + GBA smoke clean;
+  -Werror clean.
+
+Stage Summary:
+- mgbax FIFO/direct-sound gap closed; audio output now covers DMA sound + PSG.
+- Two real defects fixed (missing APU state serialization; wrong envelope-volume
+  register), each covered by tests.
+
+---
+Task ID: 8
+Agent: main (Super Z)
+Task: Milestone 2b — supersnes HDMA + DMA control-path fixes
+
+Work Log:
+- Implemented HDMA (direct + indirect) in dma.c: per-scanline passes executed
+  during each line's HBlank (hooked into the PPU line wrap before rasterize),
+  block headers (1-byte for unit 1, 2-byte otherwise; repeat flag), per-block
+  indirect address load (bank byte in table only for unit-4 modes, $43x7
+  otherwise), V=0 reload of the A2 pointer from the $43x2-4 write backup.
+- BUG FOUND + FIXED: $420B (MDMAEN) writes were mis-wired into nmitimen —
+  GP DMA via the register path never executed (s->dma.mdmaen was only set
+  white-box in tests) and the write corrupted the NMI-enable bit. Now:
+  $420B -> dma.mdmaen + immediate execution; $420C -> dma.hdmaen.
+- BUG FOUND + FIXED: DMA control-bit mapping diverged from hardware
+  (engine used bits 3-4 as step codes). Now per spec: bit7 direction,
+  bit6 indirect, bit4 fixed address, bit3 decrement, bits 0-2 transfer mode;
+  GP DMA channels self-clear fully after a transfer (was &= 0xF0).
+- BUG FOUND + FIXED (test framework): T_MAX_SUITES 32 silently dropped suite
+  registrations beyond 32 — the suite count had reached 34 and gba_apu/
+  gba_state were silently skipped. Capacity raised to 64 and overflow now
+  aborts loudly instead of discarding tests.
+- Serialization: all HDMA per-channel state added to SNES save states.
+- New suite tests/supersnes/hdma.c (5 tests): direct mode to VRAM, repeat
+  blocks, indirect addressing, register path incl. NMITIMEN regression,
+  V=0 reload.
+- Results: 250 tests, 0 failed assertions; ASan/UBSan suite + 4 CLI smokes
+  clean; -Werror clean; clean-from-scratch rebuild: 0 warnings.
+
+Stage Summary:
+- SNES HDMA functional gap closed; DMA register path corrected to hardware
+  semantics; test-runner overflow defect eliminated.
+- Documented approximations: HDMA time not subtracted from CPU execution;
+  mode 2-4 register patterns simplified to consecutive B-bus addresses;
+  HDMA for V=0 itself not performed (first visible line uses reset values).

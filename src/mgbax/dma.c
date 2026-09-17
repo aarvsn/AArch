@@ -1,8 +1,8 @@
 /*
  * mgbax DMA: 4 channels. Immediate (channel 0) and VBlank/HBlank-triggered
  * channels are serviced by the frame loop via trigger flags; the special
- * sound-FIFO triggers are not implemented (documented). Word/halfword
- * units, increment/reload address control, repeat mode.
+ * trigger (3) services sound-FIFO requests via gba_dma_fifo_request. Word/
+ * halfword units, increment/reload address control, repeat mode.
  */
 #include "gba.h"
 
@@ -88,13 +88,45 @@ uint32_t gba_dma_run(gba_t *g, uint16_t trigger_flags)
         case 0: want = 0xFFFFu; break;          /* immediate: handled on write */
         case 1: want = 1u; break;               /* VBlank */
         case 2: want = 2u; break;               /* HBlank */
-        default: continue;                      /* special: not implemented */
+        default: continue;                      /* special: FIFO requests */
         }
         if (!(trigger_flags & want))
             continue;
         cycles += dma_transfer(g, ch);
     }
     return cycles;
+}
+
+/* Sound-FIFO DMA request (SOUNDFIFO A/B). Per the hardware contract only
+ * channels 1/2 can service FIFO A and channels 2/3 FIFO B; the request
+ * transfers exactly 4 words with fixed destination into the FIFO. The
+ * transfer count register is ignored. Destination control bits are ignored
+ * (the FIFO consumes the data). */
+void gba_dma_fifo_request(gba_t *g, int fifo)
+{
+    static const int ch_by_fifo[2][2] = { { 1, 2 }, { 2, 3 } };
+    if (fifo < 0 || fifo > 1)
+        return;
+    for (int ci = 0; ci < 2; ci++) {
+        int ch = ch_by_fifo[fifo][ci];
+        gba_dma *d = &g->dma;
+        if (!d->enabled[ch])
+            continue;
+        if (((d->ctrl[ch] >> 12) & 3u) != 3u)
+            continue; /* not a FIFO DMA channel */
+        {
+            uint32_t sad = d->sad[ch];
+            int src_fixed = ((d->ctrl[ch] >> 7) & 3u) == 2u;
+            for (int i = 0; i < 4; i++) {
+                uint32_t v = gba_bus_read32(g, sad);
+                gba_apu_fifo_write32(g, fifo, v);
+                if (!src_fixed)
+                    sad += 4u;
+            }
+            d->sad[ch] = sad;
+        }
+        return; /* the highest-priority matching channel services it */
+    }
 }
 
 void gba_dma_write(gba_t *g, uint32_t addr, uint16_t v)

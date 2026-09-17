@@ -5,15 +5,19 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define T_MAX_SUITES 32
+#define T_MAX_SUITES 64
 
 static t_suite g_suites[T_MAX_SUITES];
 static size_t g_nsuites;
 
 void t_add_suite(const t_suite *suite)
 {
-    if (g_nsuites < T_MAX_SUITES)
-        g_suites[g_nsuites++] = *suite;
+    if (g_nsuites >= T_MAX_SUITES) {
+        /* overflow must never silently drop test suites */
+        fprintf(stderr, "FATAL: suite capacity %d exceeded\n", T_MAX_SUITES);
+        exit(1);
+    }
+    g_suites[g_nsuites++] = *suite;
 }
 
 static int g_failures;

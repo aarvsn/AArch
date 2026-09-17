@@ -150,13 +150,13 @@ void snes_bus_write(snes_t *s, uint32_t addr, uint8_t v)
             case 0x4209: m->vtime = (uint16_t)((m->vtime & 0xFF00u) | v); break;
             case 0x420A: m->vtime = (uint16_t)((m->vtime & 0x00FFu) | ((uint16_t)(v & 1u) << 8)); break;
             case 0x420B:
-                m->nmitimen = (uint8_t)((m->nmitimen & 0xF0u) | (v & 0x0Fu));
-                if (v & 0x0Fu) {
+                s->dma.mdmaen = v;
+                if (v != 0u) {
                     uint32_t stolen = snes_dma_run(s);
                     s->total_cycles += (uint64_t)stolen;
                 }
                 break;
-            case 0x420C: m->nmitimen = (uint8_t)((m->nmitimen & 0x0Fu) | (v & 0xF0u)); break;
+            case 0x420C: s->dma.hdmaen = v; break;
             case 0x420D: m->fastrom = (uint8_t)(v & 1u); break;
             default: break;
             }
@@ -169,9 +169,18 @@ void snes_bus_write(snes_t *s, uint32_t addr, uint8_t v)
             switch (reg) {
             case 0x0: d->params = v; break;
             case 0x1: d->bbus = v; break;
-            case 0x2: d->abus = (uint16_t)((d->abus & 0xFF00u) | v); break;
-            case 0x3: d->abus = (uint16_t)((d->abus & 0x00FFu) | ((uint16_t)v << 8)); break;
-            case 0x4: d->abank = v; break;
+            case 0x2:
+                d->abus = (uint16_t)((d->abus & 0xFF00u) | v);
+                d->hdma_reload_abus = d->abus;
+                break;
+            case 0x3:
+                d->abus = (uint16_t)((d->abus & 0x00FFu) | ((uint16_t)v << 8));
+                d->hdma_reload_abus = d->abus;
+                break;
+            case 0x4:
+                d->abank = v;
+                d->hdma_reload_abank = v;
+                break;
             case 0x5: d->count = (uint16_t)((d->count & 0xFF00u) | v); break;
             case 0x6: d->count = (uint16_t)((d->count & 0x00FFu) | ((uint16_t)v << 8)); break;
             case 0x7: d->ibank = v; break;

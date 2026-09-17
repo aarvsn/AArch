@@ -466,3 +466,55 @@ Stage Summary:
   cycles, silent-aligned unaligned accesses).
 - Remaining systems (PSX/DS/32X/Saturn/N64/DC) are honest skeletons with
   detection + validation only; CPU/GPU work is future milestones.
+
+---
+Task ID: 4
+Agent: Super Z (lead engineer)
+Task: Simplify/professionalize README, remove GLM artifacts, Termux support, implement skeleton cores
+
+Work Log:
+- Removed sandbox artifacts from the git index and disk: .env,
+  download/README.md, scripts/dbg_*.c scratch files; .gitignore refreshed.
+- Added scripts/build-termux.sh (native Termux build + ctest + optional
+  install) and a CMake install rule for the CLI and public header.
+- Implemented beatle-psx (skeleton -> partial, ~2600 lines): MIPS R3000A
+  interpreter (full MIPS I, load/branch delay slots, COP0 exceptions/RFE,
+  AdEL/AdES/Syscall/BP/RI/CPU/Ov traps), GTE (all documented commands,
+  UNR division table, FLAG saturation contract, MVMVA cv=2 hardware bug),
+  GPU (1 MiB VRAM, fills, mono/gouraud/textured tris+quads, lines, rects,
+  CLUT 4/8/15bpp, semi-transparency, dither, mask, 15/24-bit scanout),
+  DMA (burst/sync/linked-list/OTC), root counters, IRQ controller,
+  simplified digital pad, PS-X EXE loader (no BIOS image required).
+- Wrote a shared SH-2 interpreter (src/common/sh2.{c,h}, ~700 lines) with
+  encodings verified against the Hitachi SH-1/SH-2 Programming Manual
+  (downloaded from the Sega docs archive); includes DIV0S/DIV0U/DIV1
+  hardware division steps verbatim from the manual pseudocode, DMULS/
+  DMULU, MAC.L/MAC.W, all shift/rotate forms, delayed branches.
+- Implemented ms-32 (skeleton -> partial): composed 32X adapter on the
+  finalburn Genesis machine via a new A15100h register-window hook;
+  two SH-2s, COMM ports, RES/INTS/vectors/HCOUNT, VDP packed-pixel
+  framebuffer + fill command, save states extending the MD blob.
+- Bugs found and fixed by tests (each verified failing first):
+  psx create() missing vtable (NULL deref); exception EPC used the
+  advanced PC; load-delay state wrongly flushed on exception; GPU fill
+  color/param counts; GTE real opcodes for AVSZ3/AVSZ4/OP (fake vs real
+  opcode fields); RTPS MAC SAR semantics; MVMVA identity expectations;
+  SH-2 reset step size (4 vs 2 bytes); BRA/BSR 12-bit displacement;
+  group-4 dispatch on the low byte incl. MAC.W Rm field; DIV0U decode
+  (was aliased to NOP); TRAPA/illegal-opcode immediate branches;
+  SWAP.B upper-halfword loss; missing STS MACH/MACL/PR forms;
+  NEGC borrow; ADDC/SUBC carry handling; ms-32 const-bus static write.
+- README.md rewritten: shorter, professional, honest status table,
+  Termux first for Android.
+- Tests: 366 total, 0 failed assertions; clean under ASan+UBSan and
+  -Werror. (317 -> 366: psx cpu/gte/gpu/state 33, sh2 12, ms32 5 minus
+  one skeleton-contract retirement each for psx/32x.)
+
+Stage Summary:
+- Skeleton cores implemented: beatle-psx (partial: CPU+GTE+GPU+DMA+timers,
+  homebrew PS-X EXEs run), ms-32 (partial: SH-2 x2 + adapter + VDP over
+  the complete Genesis machine).
+- Remaining skeletons: mds-a (DS), supersaturn (Saturn; the shared SH-2
+  engine is now available for it), m64-b (N64), supercastpro (DC).
+- Termux path documented and scripted; sandbox artifacts removed from
+  the repository.

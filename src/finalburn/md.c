@@ -73,6 +73,9 @@ uint8_t fb_md_68k_read8(struct fb_md *md, uint32_t a)
 
 uint16_t fb_md_68k_read16(struct fb_md *md, uint32_t a)
 {
+    a &= 0xFFFFFFu;
+    if (md->ext32x != NULL && a >= 0xA15100u && a < 0xA15180u)
+        return md->ext32x_read(md->ext32x, a);
     uint16_t hi = fb_md_68k_read8(md, a);
     uint16_t lo = fb_md_68k_read8(md, a + 1);
     return (uint16_t)((hi << 8) | lo);
@@ -145,6 +148,11 @@ void fb_md_68k_write8(struct fb_md *md, uint32_t a, uint8_t v)
 
 void fb_md_68k_write16(struct fb_md *md, uint32_t a, uint16_t v)
 {
+    a &= 0xFFFFFFu;
+    if (md->ext32x != NULL && a >= 0xA15100u && a < 0xA15180u) {
+        md->ext32x_write(md->ext32x, a, v);
+        return;
+    }
     /* byte-wide devices: 68K word writes drive both halves */
     fb_md_68k_write8(md, a, (uint8_t)(v >> 8));
     fb_md_68k_write8(md, a + 1, (uint8_t)v);

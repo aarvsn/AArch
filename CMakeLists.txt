@@ -105,6 +105,7 @@ add_library(emu_common STATIC
     src/common/util.c
     src/common/registry.c
     src/common/skeleton.c
+    src/common/sh2.c
 )
 target_compile_definitions(emu_common PRIVATE
     $<$<BOOL:${EMU_BUILD_MGBX}>:EMU_BUILD_MGBX=1>
@@ -134,6 +135,11 @@ macro(emu_add_core name dir)
     emu_apply_flags(core_${name})
     list(APPEND EMU_CORE_TARGETS core_${name})
 endmacro()
+
+# ms-32 composes the finalburn machine; force the dependency.
+if(EMU_BUILD_MS_32 AND NOT EMU_BUILD_FINALBURN)
+    set(EMU_BUILD_FINALBURN ON CACHE BOOL "" FORCE)
+endif()
 
 if(EMU_BUILD_MGBX)
     emu_add_core(mgbx mgbx
@@ -179,6 +185,7 @@ if(EMU_BUILD_MDS_A)
 endif()
 if(EMU_BUILD_MS_32)
     emu_add_core(ms_32 ms-32 src/ms-32/x32.c)
+    target_link_libraries(core_ms_32 PUBLIC core_finalburn)
 endif()
 if(EMU_BUILD_SUPERSATURN)
     emu_add_core(supersaturn supersaturn src/supersaturn/saturn.c)

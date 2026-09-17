@@ -47,15 +47,6 @@ static void test_ds_skeleton(void)
     free(img);
 }
 
-static void test_32x_skeleton(void)
-{
-    size_t size = 0x400;
-    uint8_t *img = calloc(1, size);
-    memcpy(img + 0x100, "SEGA 32X", 8);
-    run_skel("ms-32", img, size, NULL, 0);
-    free(img);
-}
-
 static void test_saturn_dc_skeleton(void)
 {
     size_t size = 0x1000;
@@ -80,7 +71,6 @@ static void test_n64_skeleton(void)
 
 T_SUITE_BEGIN(skeletons)
 { "ds_skeleton_contract", test_ds_skeleton },
-{ "32x_skeleton_contract", test_32x_skeleton },
 { "saturn_dc_skeleton_contract", test_saturn_dc_skeleton },
 { "n64_skeleton_contract", test_n64_skeleton },
 T_SUITE_END

@@ -8,6 +8,8 @@ set(EMU_TEST_SOURCES
     common/state.c
     common/romdetect.c
     common/cores.c
+    sh2/sh2.c
+    ms32/x32.c
 )
 
 set(EMU_TEST_CORE_DEFS "")

@@ -189,8 +189,19 @@ struct fb_cart {
 
 /* ---- machine ----------------------------------------------------------- */
 
+/* 32X adapter extension (used by the ms-32 core): when ext32x is set, the
+ * 68K bus forwards the A15100h-A1517Fh word window to the adapter. */
+struct fb_32x;
+typedef uint16_t (*fb_32x_read_fn)(void *ext, uint32_t addr);
+typedef void (*fb_32x_write_fn)(void *ext, uint32_t addr, uint16_t v);
+
 struct fb_md {
     emu_core_t base;
+
+    /* 32X adapter extension hook (NULL in the plain Genesis core). */
+    void *ext32x;
+    fb_32x_read_fn ext32x_read;
+    fb_32x_write_fn ext32x_write;
 
     struct fb_m68k m68k;
     struct fb_z80  z80;

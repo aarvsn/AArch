@@ -104,7 +104,7 @@ static void test_registry_content(void)
     size_t count = 0;
     const emu_core_info_t *reg = emu_core_registry(&count);
     T_CHECK_EQ_U(count, 11);
-    int saw_mgbx = 0, saw_finalburn = 0, saw_psx = 0;
+    int saw_mgbx = 0, saw_finalburn = 0, saw_psx = 0, saw_ms32 = 0;
     for (size_t i = 0; i < count; i++) {
         if (strcmp(reg[i].name, "mgbx") == 0) {
             saw_mgbx = 1;
@@ -116,7 +116,11 @@ static void test_registry_content(void)
         }
         if (strcmp(reg[i].name, "beatle-psx") == 0) {
             saw_psx = 1;
-            T_CHECK_EQ_U(reg[i].status, EMU_STATUS_SKELETON);
+            T_CHECK_EQ_U(reg[i].status, EMU_STATUS_PARTIAL);
+        }
+        if (strcmp(reg[i].name, "ms-32") == 0) {
+            saw_ms32 = 1;
+            T_CHECK_EQ_U(reg[i].status, EMU_STATUS_PARTIAL);
         }
         T_CHECK(reg[i].note != NULL && reg[i].note[0] != 0);
         T_CHECK(reg[i].vtable != NULL);
@@ -126,7 +130,7 @@ static void test_registry_content(void)
         if (vt != NULL)
             T_CHECK_STR(vt->name, reg[i].name);
     }
-    T_CHECK(saw_mgbx && saw_finalburn && saw_psx);
+    T_CHECK(saw_mgbx && saw_finalburn && saw_psx && saw_ms32);
 }
 
 T_SUITE_BEGIN(romdetect)

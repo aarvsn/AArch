@@ -1,4 +1,4 @@
-/* emu-fw shared helpers: CRC32, endian-safe access, state serialization. */
+/* AArch shared helpers: CRC32, endian-safe access, state serialization. */
 #include "util.h"
 
 #include <string.h>
@@ -6,13 +6,14 @@
 const char *emu_result_str(emu_result_t r)
 {
     switch (r) {
-    case EMU_OK:           return "ok";
-    case EMU_EINVAL:       return "invalid argument";
-    case EMU_ENOROM:       return "no ROM loaded";
-    case EMU_EUNSUPPORTED: return "unsupported feature or mapping";
-    case EMU_ENOSPACE:     return "destination buffer too small";
-    case EMU_EBADSTATE:    return "save state corrupt or foreign";
-    case EMU_EBADROM:      return "ROM header malformed";
+    case EMU_OK:            return "ok";
+    case EMU_EINVAL:        return "invalid argument";
+    case EMU_ENOROM:        return "no ROM loaded";
+    case EMU_EUNSUPPORTED:  return "unsupported feature or mapping";
+    case EMU_ENOSPACE:      return "destination buffer too small";
+    case EMU_EBADSTATE:     return "save state corrupt or foreign";
+    case EMU_EBADROM:       return "ROM header malformed";
+    case EMU_ENOTIMPL:      return "not implemented by this core";
     }
     return "unknown error";
 }

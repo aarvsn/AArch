@@ -1,11 +1,12 @@
 /*
- * emu-fw: lightweight, modular multi-system emulator framework.
+ * AArch: lightweight, modular multi-system emulator framework.
  *
  * Public core interface. This header is the ONLY dependency a frontend needs.
  * It intentionally exposes a small, explicit API; each emulator core keeps its
  * own CPU/memory/PPU/APU implementation and never leaks system internals here.
  *
- * ABI version 1.
+ * ABI version 1 (unchanged since the first release; registry/probe helpers are
+ * additive and live in separate functions below).
  */
 #ifndef EMU_EMU_H
 #define EMU_EMU_H
@@ -27,7 +28,8 @@ typedef enum {
     EMU_EUNSUPPORTED,    /* ROM/cartridge uses an unsupported mapping        */
     EMU_ENOSPACE,        /* destination buffer too small (nothing written)   */
     EMU_EBADSTATE,       /* save-state blob corrupt or foreign               */
-    EMU_EBADROM          /* ROM header malformed                             */
+    EMU_EBADROM,         /* ROM header malformed                             */
+    EMU_ENOTIMPL         /* operation not implemented by this core (yet)     */
 } emu_result_t;
 
 /* Human-readable name for a result code. Never NULL. */
@@ -110,6 +112,50 @@ const emu_core_vtable_t *emu_core_mgbx(void);            /* Game Boy / DMG     *
 const emu_core_vtable_t *emu_core_beatle_nes_redux(void);/* NES / Famicom      */
 const emu_core_vtable_t *emu_core_supersnes(void);       /* SNES               */
 const emu_core_vtable_t *emu_core_mgbax(void);           /* Game Boy Advance   */
+const emu_core_vtable_t *emu_core_finalburn(void);       /* Genesis / Mega Drive */
+const emu_core_vtable_t *emu_core_beatle_psx(void);      /* PlayStation (skeleton) */
+const emu_core_vtable_t *emu_core_mds_a(void);           /* Nintendo DS (skeleton) */
+const emu_core_vtable_t *emu_core_ms_32(void);           /* Sega 32X (skeleton) */
+const emu_core_vtable_t *emu_core_supersaturn(void);     /* Sega Saturn (skeleton) */
+const emu_core_vtable_t *emu_core_m64_b(void);           /* Nintendo 64 (skeleton) */
+const emu_core_vtable_t *emu_core_supercastpro(void);    /* Dreamcast (skeleton) */
+
+/*
+ * Core status used by frontends to report real capability. Status values are
+ * plain data: a core's own test suite is the source of truth for WORKING and
+ * PARTIAL; SKELETON cores reject run_frame with EMU_ENOTIMPL by contract.
+ */
+typedef enum {
+    EMU_STATUS_WORKING = 0, /* boots, runs, audio, save states; suite green */
+    EMU_STATUS_PARTIAL,     /* runs with documented functional gaps         */
+    EMU_STATUS_SKELETON     /* structure + ROM detection only; cannot run   */
+} emu_core_status_t;
+
+typedef struct {
+    const char *name;   /* core short name, matches vtable->name          */
+    emu_core_status_t status;
+    const char *note;   /* human-readable capability summary, never NULL  */
+    /* vtable accessor; NULL when the core is not compiled into this build */
+    const emu_core_vtable_t *(*vtable)(void);
+} emu_core_info_t;
+
+/*
+ * Registry of every core KNOWN to this build configuration (built or not).
+ * Returns a static array of *count_out entries; order is stable. The array is
+ * owned by the library and valid for the program lifetime.
+ */
+const emu_core_info_t *emu_core_registry(size_t *count_out);
+
+/*
+ * Probe a ROM image and suggest a core short name (one of the registry
+ * names, or "unknown"). Pure signature sniffing on the raw bytes; never
+ * loads, allocates or fails. Ambiguous formats may be overridden by the
+ * user with an explicit core choice in the frontend.
+ */
+const char *emu_rom_probe(const uint8_t *data, size_t size);
+
+/* Human-readable name for a core status value. Never NULL. */
+const char *emu_core_status_str(emu_core_status_t s);
 
 /* Convenience wrappers around a vtable instance (NULL-safe where noted). */
 emu_result_t emu_core_create(const emu_core_vtable_t *vt, emu_core_t **out);
@@ -121,6 +167,13 @@ void emu_core_destroy(emu_core_t *core);                       /* NULL-safe */
  * inspecting pixels.
  */
 uint32_t emu_crc32(const uint32_t *data, size_t count);
+
+/* Input bitmaps for the additional cores (see vtable comment above):
+ * finalburn (Genesis 3-button pad), layout chosen for v1:
+ *                         Up=bit0 Down=bit1 Left=bit2 Right=bit3
+ *                         A=bit4 B=bit5 C=bit6 Start=bit7
+ * Skeleton cores accept and store the mask but never read it.
+ */
 
 #ifdef __cplusplus
 }

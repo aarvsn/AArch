@@ -1,3 +1,15 @@
+# AArch CI.
+#
+# NOTE: this file lives at ci/github-ci.yml because the repository push
+# token lacked the GitHub `workflow` scope (workflow files under
+# .github/workflows/ are rejected without it). To activate CI, copy this
+# file to .github/workflows/ci.yml in the GitHub UI or push it with a
+# workflow-scoped token.
+#
+# Matrix: Linux x64 + ARM64, Windows (MSVC), macOS, and an Android NDK
+# compile check (API 23 = Android 6.0, arm64-v8a). Sanitizer and Werror
+# configurations run on Linux x64.
+
 name: ci
 
 on:
@@ -5,24 +17,93 @@ on:
   pull_request:
 
 jobs:
-  build-test:
+  linux:
+    runs-on: ${{ matrix.runner }}
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - name: release
+          - name: linux-x64-release
+            runner: ubuntu-latest
             cmake: -DCMAKE_BUILD_TYPE=Release
-          - name: werror
+          - name: linux-x64-werror
+            runner: ubuntu-latest
             cmake: -DCMAKE_BUILD_TYPE=Release -DEMU_WERROR=ON
-          - name: sanitizers
+          - name: linux-x64-sanitizers
+            runner: ubuntu-latest
             cmake: -DCMAKE_BUILD_TYPE=Debug -DEMU_SANITIZE_ADDRESS=ON -DEMU_SANITIZE_UNDEFINED=ON
-    runs-on: ubuntu-latest
+          - name: linux-arm64-release
+            runner: ubuntu-24.04-arm
+            cmake: -DCMAKE_BUILD_TYPE=Release
     steps:
       - uses: actions/checkout@v4
       - name: Install CMake
-        run: pipx install cmake || sudo apt-get update && sudo apt-get install -y cmake
+        run: sudo apt-get update && sudo apt-get install -y cmake
       - name: Configure (${{ matrix.name }})
-        run: cmake -S . -B build-${{ matrix.name }} ${{ matrix.cmake }}
+        run: cmake -S . -B build ${{ matrix.cmake }}
       - name: Build
-        run: cmake --build build-${{ matrix.name }} -j
+        run: cmake --build build -j
       - name: Test
-        run: ctest --test-dir build-${{ matrix.name }} --output-on-failure
+        run: ctest --test-dir build --output-on-failure
+      - name: Smoke (all working cores)
+        if: matrix.name == 'linux-x64-release'
+        run: |
+          gcc -O1 -std=c11 scripts/make_smoke_roms.c -o /tmp/mksmoke
+          /tmp/mksmoke
+          ./build/aarch --core mgbx --rom /tmp/smoke_gb.gb --smoke
+          ./build/aarch --core beatle-nes-redux --rom /tmp/smoke_nes.nes --smoke
+          ./build/aarch --core supersnes --rom /tmp/smoke_snes.sfc --smoke
+          ./build/aarch --core mgbax --rom /tmp/smoke_gba.gba --smoke
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --config Release -j
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build -j
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  android:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        abi: [arm64-v8a, armeabi-v7a, x86_64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK (for the NDK)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Install Android NDK
+        uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r26d
+      - name: Configure (API 23 = Android 6.0)
+        run: >
+          cmake -S . -B build-android
+          -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake
+          -DANDROID_ABI=${{ matrix.abi }}
+          -DANDROID_PLATFORM=android-23
+          -DCMAKE_BUILD_TYPE=Release
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+      - name: Build
+        run: cmake --build build-android -j
+      - name: Verify aarch binary
+        run: file build-android/aarch

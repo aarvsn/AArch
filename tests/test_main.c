@@ -122,6 +122,8 @@ int t_run_all(void)
 /* Suite registration (cores compiled in only when enabled). */
 void t_register_common(void);
 void t_register_state(void);
+void t_register_romdetect(void);
+void t_register_skeletons(void);
 #if EMU_BUILD_MGBX
 void t_register_mgbx(void);
 #endif
@@ -134,11 +136,20 @@ void t_register_supersnes(void);
 #if EMU_BUILD_MGBAX
 void t_register_mgbax(void);
 #endif
+#if EMU_BUILD_FINALBURN
+void t_register_finalburn_m68k(void);
+void t_register_finalburn_z80(void);
+void t_register_finalburn_vdp(void);
+void t_register_finalburn_audio(void);
+void t_register_finalburn_state(void);
+#endif
 
 int main(void)
 {
     t_register_common();
     t_register_state();
+    t_register_romdetect();
+    t_register_skeletons();
 #if EMU_BUILD_MGBX
     t_register_mgbx();
 #endif
@@ -150,6 +161,13 @@ int main(void)
 #endif
 #if EMU_BUILD_MGBAX
     t_register_mgbax();
+#endif
+#if EMU_BUILD_FINALBURN
+    t_register_finalburn_m68k();
+    t_register_finalburn_z80();
+    t_register_finalburn_vdp();
+    t_register_finalburn_audio();
+    t_register_finalburn_state();
 #endif
     return t_run_all();
 }

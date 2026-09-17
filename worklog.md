@@ -342,3 +342,127 @@ Stage Summary:
 - Documented approximations: HDMA time not subtracted from CPU execution;
   mode 2-4 register patterns simplified to consecutive B-bus addresses;
   HDMA for V=0 itself not performed (first visible line uses reset values).
+
+---
+Task ID: 9
+Agent: main (Super Z)
+Task: Milestone 3 — AArch rebrand, cross-platform CLI (Windows 7+/macOS 10.x+/
+Linux/Android 6+), new cores (FinalBurn Genesis real implementation; Beatle PSX,
+mDS-A, ms-32, SuperSaturn, m64-B, superCastPro as honest skeletons), push to
+github.com/aarvsn/AArch
+
+Work Log:
+- Verified milestone-2 baseline after restart: clean Release rebuild, 250/250
+  tests, tree clean. Pushed milestones 1-2 to github.com/aarvsn/AArch (remote
+  canonical case). First push was REJECTED: the provided token lacks the
+  GitHub `workflow` scope and the history contained
+  .github/workflows/ci.yml. Rewrote local history (filter-branch) to drop the
+  workflow file, relocated it to ci/github-ci.yml with an explanatory commit,
+  pushed successfully. Note recorded in README + CI file header: copy
+  ci/github-ci.yml to .github/workflows/ci.yml with a scoped token to
+  activate CI.
+- Rebranded: CMake project "AArch" v0.3.0, CLI binary `aarch`
+  (tools/emu-cli -> tools/aarch), public header doc comments. Public ABI kept
+  at version 1; additions are purely additive.
+- emu.h additions: EMU_ENOTIMPL result code; 7 new core accessors;
+  emu_core_status_t (working/partial/skeleton); emu_core_registry() +
+  emu_core_info_t; emu_rom_probe(); emu_core_status_str().
+- src/common/registry.c: registry of 11 cores with honest statuses and
+  per-build guarded vtable accessors; ROM signature probing (iNES, N64
+  z64/v64/n64, PS-X EXE, SEGA SEGASATURN/SEGAKATANA IP.BIN, SEGA 32X over
+  Genesis, Genesis "SEGA" domestic field, NDS logo at 0x160, GB logo at
+  0x104, GBA logo at 0x04, SNES LoROM/HiROM checksum complement,
+  ISO9660 PLAYSTATION system id).
+- NEW CORE finalburn (Genesis/Mega Drive), ~5400 lines:
+  * m68k.c: full official 68000 set (MOVE families, immediate ALU, bit ops,
+    MOVEP, quick forms, Bcc/DBcc/Scc, shifts/rotates reg+mem, MUL/DIV,
+    LINK/UNLK, MOVEM incl. predecrement reversed mask, TAS, EXG/SWAP/EXT,
+    PEA/LEA, TRAP/CHK/TRAPV, MOVE SR/CCR/USP, STOP/RTE/RTR/RESET, ABCD/SBCD/
+    NBCD two-nibble decimal, exceptions incl. trace + IPL 1-7 + STOP wake,
+    supervisor/user SP switching). Approximations documented: coarse cycle
+    counts, unaligned accesses aligned silently, RESET = no-op.
+  * z80.c: full documented Z80 (base/CB/ED/DD/FD, DDCB/FDCB, IM0/1/2,
+    block ops, index registers, DAA, 16-bit INC/DEC).
+  * vdp.c: VRAM/CRAM/VSRAM + auto-increment, register writes, planes
+    A/B/window with priority, sprites (H32/H40 limits, link walk, flips,
+    first-come priority, collision/overflow flags), whole/per-line H-scroll,
+    whole/per-column V-scroll, backdrop, DMA (68K->VDP, VRAM fill, VRAM
+    copy) with approximate timing and 68K stall, V-int/H-int with status
+    read clearing, HV counters, display blanking. CRAM layout
+    0000BBB0GGG0RRR.
+  * psg.c: SN76489 3 tone + noise (15-bit LFSR, white/periodic, tone2-
+    clocked rates), 4-bit attenuation; envelope mode not implemented
+    (documented).
+  * ym2612.c: 6x4-op FM, 8 algorithms (datasheet connectivity), feedback,
+    detune/multiple/TL, AR/DR/SR/RR + key scaling + sustain level, key
+    on/off, timers A/B with IRQ, DAC, L/R panning. Integer-only: sine via
+    symplectic circle walk, dB envelope via integer 0.75dB/unit chain.
+    Tuning anchor FNUM=1024/OCT=4/MULT=1 = 440 Hz (phase increment 8659 at
+    master/144; regression-tested). LFO/SSG-EG/CH3-special off (documented).
+  * cart.c: ROM load, power-of-two mask/modulo mirroring, SRAM header
+    detection ("RA" at 0x1B0) + 64 KiB SRAM.
+  * md.c: 68K bus (ROM/RAM mirrors/Z80 window/IO/VDP/YM/busreq/reset/bank),
+    Z80 bus bridge (RAM/YM/bank register/PSG/H counter), 3-button pad with
+    TH multiplexing ($A10003 data, $A10009 ctrl), frame loop (262 lines x
+    488 68K cycles, Z80 credit accounting, YM master/144 sampling, PSG
+    z80/16 ticks, 48 kHz Bresenham output), vtable, explicit save states
+    (full machine incl. both CPUs, VDP, PSG, YM2612 envelopes/phases, SRAM).
+- SKELETON CORES: src/common/skeleton.{c,h} shared honest scaffolding +
+  beatle-psx / mds-a / ms-32 / supersaturn / m64-b / supercastpro cores:
+  format validation on load, image held, run_frame/save/load return
+  EMU_ENOTIMPL. Contract-tested.
+- CLI: aarch binary with core auto-detection via emu_rom_probe, --core
+  override, --list with per-core status, skeleton runs exit 3 with an honest
+  "not implemented" message, distinct exit codes (0/1/2/3/4).
+- CMake: project AArch, options for all 11 cores, MSVC /W4 path, Windows 7
+  (_WIN32_WINNT=0x0601), macOS deployment target 10.12 default, registry
+  compile definitions via generator expressions; toolchains/mingw-w64.cmake
+  for Linux->Windows cross builds; Android via the NDK toolchain file
+  (documented, API 23).
+- CI (ci/github-ci.yml): Linux x64 (release/Werror/sanitizers + core smokes),
+  Linux ARM64 (ubuntu-24.04-arm), Windows MSVC, macOS, Android NDK compile
+  matrix (arm64-v8a/armeabi-v7a/x86_64 at API 23).
+- Tests: 67 new (finalburn m68k 20, z80 10, vdp 8, audio 9 incl. frame
+  determinism with audio byte-comparison, state 7; romdetect 8; skeleton
+  contracts 5). Total 317 tests, 0 failed assertions.
+
+Bugs found and fixed during test bring-up (each verified by a failing test):
+- finalburn/cart.c: fb_cart_read8 divided by rom_size 0 during reset-vector
+  fetch at create time (SIGFPE) -> guard no-cart open bus.
+- finalburn/m68k.c abs.W addressing returned PC-relative base + ext instead
+  of the absolute word (LEA/JSR/MOVEM abs forms jumped to wrong addresses).
+- finalburn/m68k.c immediate group marked ADDI (sub 3) as illegal.
+- finalburn/m68k.c SUB borrow formula used (a & r) instead of (~a & r):
+  NEG/CMP/SUB borrow flags wrong (NEG.B #5 must set C/X).
+- finalburn/m68k.c TRAP #n (0x4E40-0x4EFF) was not decoded at all.
+- finalburn/m68k.c NOP mask (op & 0xFFF9) == 0x4E71 also matched RTS
+  (0x4E75) -> RTS executed as NOP, call/return broken. Exact-match now.
+- finalburn/m68k.c EXG decode mask dropped bit 6: (op & 0xF138) == 0xC140
+  never matched; ABCD mask collided with EXG Dx,Dy.
+- finalburn/m68k.c op_bcd wrote the result to the source register (Dy)
+  instead of the destination (Dx), and SBCD operand order was swapped.
+- finalburn/z80.c 16-bit INC/DEC rr (0x03/0x13/0x23/0x33/0x0B/...) missing.
+- finalburn/z80.c ED block: switch mask (op & 0xC7) made ADC-HL/LDIR/CPIR
+  cases unreachable; direction/repeat bits (3/4) were swapped.
+- finalburn/z80.c IM decode: (op >> 3) & 3 mapped ED 56 to IM 2.
+- finalburn/skeletons: create wrappers never set base.vtable ->
+  emu_core_destroy(NULL deref) segfaulted; regression-tested via
+  emu_core_destroy in the skeleton contract suite.
+- finalburn/vdp.c: register-write commands (bit15 set) were treated as
+  pending two-word data commands, so registers were never set.
+- finalburn/ym2612.c envelopes started at attenuation 0 (full volume)
+  after reset; correct contract is silent until key-on.
+- finalburn/psg.c noise counter started at 0 and underflowed (never
+  shifted) -> periodic noise stayed silent.
+
+Stage Summary:
+- Milestone 3 complete: AArch rebrand, 11-core registry (5 working/partial
+  real cores + 6 honest skeletons), cross-platform CLI build paths for
+  Windows 7+/macOS 10.12+/Linux/Android 6+ with CI matrix, 317/317 tests,
+  ASan/UBSan clean (suite + all 5 core smokes), -Werror clean, finalburn
+  ~3150 fps (Release, synthetic ROM).
+- finalburn known limitations are documented in README (FIFO, DMA timing,
+  shadow/highlight, interlace, LFO, SSG-EG, PSG envelope mode, coarse 68K
+  cycles, silent-aligned unaligned accesses).
+- Remaining systems (PSX/DS/32X/Saturn/N64/DC) are honest skeletons with
+  detection + validation only; CPU/GPU work is future milestones.

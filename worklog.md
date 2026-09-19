@@ -518,3 +518,64 @@ Stage Summary:
   engine is now available for it), m64-b (N64), supercastpro (DC).
 - Termux path documented and scripted; sandbox artifacts removed from
   the repository.
+
+---
+Task ID: 5
+Agent: Super Z (lead engineer)
+Task: New push token; continue next steps (implement remaining skeleton cores)
+
+Work Log:
+- Restored sandbox toolchain (cmake via pip); verified 366 tests green before changes.
+- Discovered local branch had diverged from origin: the local commit re-added the
+  sandbox .env and reverted .gitignore (sandbox artifact regression). Reset local
+  to origin/main (content otherwise identical, verified by diff).
+- Reference work: downloaded official Sega Saturn manuals from the antime.kapsi.fi
+  Sega docs archive - VDP1 User's Manual (ST-013-R3), SCU User's Manual (ST-097-R5),
+  SMPC User's Manual (ST-169-R1), Disc Format Standards (ST-040-R4, IP.BIN System ID
+  header + boot sequence). VDP2/CD manuals not located; those subsystems stayed stubs.
+- supersaturn: skeleton -> partial (~1400 lines): dual SH-2 (shared interpreter),
+  memory map per SCU manual figure 1.3/1.5, SCU registers, direct+indirect DMA
+  (field decode cross-checked with Yabause; end flag = bit 31 of the indirect
+  header read-address word), interrupt controller with the official vector/level
+  table, timers, SMPC INTBACK digital-pad reporting, SINIT slave start, VDP1
+  command processor (jump/call/return, normal+scaled sprites with nine zoom
+  points, polygon fill via edge functions, lines; color modes 0-5 with CRAM
+  banks / VRAM LUTs / RGB555; SPD/ECD/mesh; system+user clipping; erase/write +
+  1-cycle frame change), IP.BIN boot model (AIP -> WorkRAM-H 0x06002000, stacks
+  from System ID, VBR = 0x06000000, interrupts masked at boot).
+- sh2.c: added sh2_irq_vector() (controller-supplied vectors, VBR+0x600+vec*4)
+  and the missing group-0 MOV.B/W Rm,@(R0,Rn) (found by the new Saturn tests).
+- m64-b: skeleton -> partial (~1200 lines): R4300i (MIPS III) big-endian
+  interpreter (full MIPS I + MIPS III 64-bit shifts/loads/stores, LL/SC, CP0
+  with Count/Compare + exception model + ERET), documented no-PIF boot model
+  (ROM[0..0x1000) -> SP DMEM, PC = 0xA4000040, r29 = 0xA4001FF0, Status =
+  ERL|BEV), 4 MiB RDRAM, PI cart->RDRAM DMA, SI 64-byte PIF DMA, MI interrupt
+  latch/mask, VI with progressing half-line counter + VI_INTR + framebuffer
+  output (RGBA5551 / RGBA8), PIF ROM region RAM-backed for vectors.
+- Bugs found and fixed by tests (each verified failing first):
+  supersaturn: SCU DMA field decode/lane semantics (rewritten to edge-triggered
+  dispatch), indirect-mode end-flag execution order, VDP1 edge-function formula
+  (x-components where y belonged), framebuffer stores raw 16-bit color codes
+  (conversion moved to render), display window origin, polygon CMDPMOD clipping
+  passthrough, NULL-ROM handling, IRQ storm at boot (IMS all-masked at boot,
+  VBR initialized by the boot model).
+  sh2.c: missing MOV.B/W Rm,@(R0,Rn) encodings 0x0004/0x0005.
+  m64-b: boot copy destination (DMEM not IMEM, full first KB), PI cart address
+  mask (0x1FFFFFFE strips kseg bits), RGBA5551 extraction (bits 14-10/9-5/4-0),
+  exception entry now clears ERL, ERET implemented.
+  (My own hand-assembled test bugs - BRA/BSR confusion, RTE encoding, register
+  fields - were also caught by the suite and fixed in the tests.)
+- registry/README: supersaturn and m64-b -> partial with honest capability notes.
+- Tests: 366 -> 387 (saturn 14, m64b 7); 0 failed assertions; ASan+UBSan clean
+  (fixed a test-side leak the sanitizers caught); -Werror clean.
+- Pushed both milestones with the new token (token scrubbed from the remote URL
+  after each push): af8ce24 (supersaturn), 7c936d5 (m64-b).
+
+Stage Summary:
+- Registry now: 5 working / 6 partial / 2 skeleton.
+- Remaining skeletons: mds-a (Nintendo DS) and supercastpro (Dreamcast). Both
+  require new CPU interpreters (ARM946E-S + ARM7TDMI; SH-4) and were left
+  honest skeletons this session - recommended next steps.
+- Saturn and N64 cores run machine-level code (tested with hand-assembled
+  programs through the documented boot models); retail software needs the
+  documented stubs implemented (VDP2/SCSP/CD for Saturn; RSP/AI for N64).

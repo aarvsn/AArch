@@ -146,6 +146,7 @@ void t_register_finalburn_state(void);
 void t_register_sh2(void);
 void t_register_ms32(void);
 void t_register_saturn(void);
+void t_register_m64b(void);
 #if EMU_BUILD_BEATLE_PSX
 void t_register_beatle_psx_cpu(void);
 void t_register_beatle_psx_gte(void);
@@ -181,6 +182,7 @@ int main(void)
     t_register_sh2();
     t_register_ms32();
     t_register_saturn();
+    t_register_m64b();
 #if EMU_BUILD_BEATLE_PSX
     t_register_beatle_psx_cpu();
     t_register_beatle_psx_gte();

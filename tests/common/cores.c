@@ -51,26 +51,15 @@ static void test_saturn_dc_skeleton(void)
 {
     size_t size = 0x1000;
     uint8_t *img = calloc(1, size);
-    /* supersaturn is now a partial core with its own suite
-     * (tests/saturn/); only supercastpro remains a skeleton here */
+    /* supersaturn and m64-b are partial cores with their own suites
+     * (tests/saturn/, tests/m64b/); only supercastpro remains here */
     memcpy(img, "SEGA SEGAKATANA", 15);
     run_skel("supercastpro", img, size, NULL, 0);
     free(img);
 }
 
-static void test_n64_skeleton(void)
-{
-    uint8_t z64[0x1000] = { 0 };
-    z64[0] = 0x80;
-    z64[1] = 0x37;
-    z64[2] = 0x12;
-    z64[3] = 0x40;
-    run_skel("m64-b", z64, sizeof z64, NULL, 0);
-}
-
 T_SUITE_BEGIN(skeletons)
 { "ds_skeleton_contract", test_ds_skeleton },
 { "saturn_dc_skeleton_contract", test_saturn_dc_skeleton },
-{ "n64_skeleton_contract", test_n64_skeleton },
 T_SUITE_END
 T_SUITE_REG(skeletons)

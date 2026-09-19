@@ -163,8 +163,9 @@ static const emu_core_info_t registry[] = {
       "Sega Saturn: SH-2 x2, SCU DMA+IRQ+timers, VDP1 sprites/polys, SMPC "
       "INTBACK, IP.BIN boot; VDP2/SCSP/CD stub (320x224, 44100 Hz)",
       ref_saturn },
-    { "m64-b", EMU_STATUS_SKELETON,
-      "Nintendo 64: ROM detection + byte-order handling only; VR4300/RCP stub",
+    { "m64-b", EMU_STATUS_PARTIAL,
+      "Nintendo 64: R4300i (MIPS III) + CP0/exceptions, PI DMA, SI, VI "
+      "framebuffer output, no-PIF boot model; RSP, audio and TLB are stubs",
       ref_n64 },
     { "supercastpro", EMU_STATUS_SKELETON,
       "Dreamcast: disc detection only; SH-4/PowerVR not implemented",

@@ -51,9 +51,8 @@ static void test_saturn_dc_skeleton(void)
 {
     size_t size = 0x1000;
     uint8_t *img = calloc(1, size);
-    memcpy(img, "SEGA SEGASATURN", 15);
-    run_skel("supersaturn", img, size, NULL, 0);
-    memset(img, 0, size);
+    /* supersaturn is now a partial core with its own suite
+     * (tests/saturn/); only supercastpro remains a skeleton here */
     memcpy(img, "SEGA SEGAKATANA", 15);
     run_skel("supercastpro", img, size, NULL, 0);
     free(img);

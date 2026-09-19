@@ -105,6 +105,7 @@ if(EMU_BUILD_MS_32)
 endif()
 
 if(EMU_BUILD_SUPERSATURN)
+    list(APPEND EMU_TEST_SOURCES saturn/saturn.c)
     list(APPEND EMU_TEST_CORE_DEFS EMU_BUILD_SUPERSATURN=1)
     list(APPEND EMU_TEST_CORE_LIBS core_supersaturn)
 endif()

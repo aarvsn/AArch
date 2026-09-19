@@ -19,8 +19,8 @@ across host platforms and endianness.
 | finalburn | Genesis / Mega Drive | partial | 68000, Z80, VDP mode-4, PSG, YM2612; coarse cycle counts, see README notes in the repo wiki of history |
 | ms-32 | Sega 32X | partial | SH-2 x2 + adapter (COMM, DREQ, interrupts) + VDP packed-pixel over finalburn; RLE mode, autosprites and PWM audio pending |
 | beatle-psx | Sony PlayStation | partial | R3000A + GTE + GPU (1 MiB VRAM, textured/semi-transparent rendering) + DMA + timers, PS-X EXE loader (no BIOS); CD-ROM and SPU not implemented |
+| supersaturn | Sega Saturn | partial | SH-2 x2, SCU (direct+indirect DMA, interrupts, timers), VDP1 (sprites/polygons/clipping, bank+LUT+RGB colors), SMPC INTBACK, IP.BIN boot (no BIOS); VDP2 compositing, SCSP sound and CD block are stubs |
 | mds-a | Nintendo DS | skeleton | ROM detection and validation only |
-| supersaturn | Sega Saturn | skeleton | ROM detection and validation only |
 | m64-b | Nintendo 64 | skeleton | ROM detection and byte-order handling only |
 | supercastpro | Sega Dreamcast | skeleton | Disc detection and validation only |
 
@@ -111,7 +111,7 @@ explicit little-endian serialization — never raw pointers.
 `tests/` is organized per system plus common suites (API lifecycle, state
 contract, ROM detection, skeleton contracts). Expected values derive from
 hardware specifications — hand-assembled opcodes and datasheet formulas,
-never emulator internals. Current status: **366 tests, 0 failed
+never emulator internals. Current status: **380 tests, 0 failed
 assertions**, clean under ASan+UBSan and `-Werror`.
 
 ## License

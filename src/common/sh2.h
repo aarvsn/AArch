@@ -49,7 +49,12 @@ void sh2_init(sh2_t *c, const sh2_bus_t *bus);
 void sh2_reset(sh2_t *c);
 /* Execute one instruction; returns consumed cycles. */
 uint32_t sh2_step(sh2_t *c);
-/* Request an interrupt (level 0-15); auto-acknowledged on RTE. */
+/* Request an interrupt (level 0-15); auto-acknowledged on RTE.
+ * Vectors through VBR + 0x600 + level*4. */
 void sh2_irq(sh2_t *c, int level);
+/* Interrupt with an explicit vector number (level 0-15, vector number as
+ * supplied by the system's interrupt controller, e.g. Saturn SCU 0x40-0x5F).
+ * Vectors through VBR + 0x600 + vector*4. */
+void sh2_irq_vector(sh2_t *c, int level, uint32_t vector);
 
 #endif /* EMU_COMMON_SH2_H */

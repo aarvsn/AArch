@@ -159,8 +159,9 @@ static const emu_core_info_t registry[] = {
       "Sega 32X: SH-2 x2 + adapter + COMM + VDP packed-pixel over finalburn; "
       "RLE/autosprites/PWM pending",
       ref_32x },
-    { "supersaturn", EMU_STATUS_SKELETON,
-      "Sega Saturn: disc detection only; SH-2 x2/VDP not implemented",
+    { "supersaturn", EMU_STATUS_PARTIAL,
+      "Sega Saturn: SH-2 x2, SCU DMA+IRQ+timers, VDP1 sprites/polys, SMPC "
+      "INTBACK, IP.BIN boot; VDP2/SCSP/CD stub (320x224, 44100 Hz)",
       ref_saturn },
     { "m64-b", EMU_STATUS_SKELETON,
       "Nintendo 64: ROM detection + byte-order handling only; VR4300/RCP stub",

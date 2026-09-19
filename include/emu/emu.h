@@ -172,6 +172,10 @@ uint32_t emu_crc32(const uint32_t *data, size_t count);
  * finalburn (Genesis 3-button pad), layout chosen for v1:
  *                         Up=bit0 Down=bit1 Left=bit2 Right=bit3
  *                         A=bit4 B=bit5 C=bit6 Start=bit7
+ * supersaturn (Saturn digital pad):
+ *                         Start=bit3 Up=bit4 Down=bit5 Left=bit6 Right=bit7
+ *                         A=bit8 B=bit9 C=bit10 X=bit11 Y=bit12 Z=bit13
+ *                         L=bit14 R=bit15
  * Skeleton cores accept and store the mask but never read it.
  */
 

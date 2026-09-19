@@ -61,6 +61,19 @@ static inline void branch(sh2_t *c, uint32_t target)
 
 void sh2_irq(sh2_t *c, int level)
 {
+    sh2_irq_vector(c, level, (uint32_t)level);
+}
+
+/*
+ * Interrupt with an explicit vector number. Systems whose interrupt
+ * controller supplies a vector (e.g. the Sega Saturn SCU, vectors 0x40-0x5F
+ * per the SCU User's Manual interrupt table) vector through
+ * VBR + 0x600 + vector*4; several factors may share one level. Systems
+ * without a vector number (32X adapter) use sh2_irq(), which keeps the
+ * level-derived vector address for compatibility.
+ */
+void sh2_irq_vector(sh2_t *c, int level, uint32_t vector)
+{
     uint32_t lv = (uint32_t)level & 0xFu;
     if ((c->sr & SH2_I) >> 4 >= lv)
         return;
@@ -69,7 +82,7 @@ void sh2_irq(sh2_t *c, int level)
     c->bus->write32(c->bus->user, c->r[15], c->sr);
     c->r[15] -= 4u;
     c->bus->write32(c->bus->user, c->r[15], c->next_pc);
-    uint32_t vec = c->bus->read32(c->bus->user, c->vbr + 0x600u + lv * 4u);
+    uint32_t vec = c->bus->read32(c->bus->user, c->vbr + 0x600u + vector * 4u);
     c->sr = (c->sr & ~SH2_I) | (lv << 4);
     c->pc = vec;
     c->next_pc = vec + 2u;
@@ -131,6 +144,14 @@ uint32_t sh2_step(sh2_t *c)
         } else if ((op & 0x000Fu) == 0x0007u) {
             /* 0000nnnnmmmm0111 MUL.L Rm,Rn */
             c->macl = c->r[n] * c->r[m];
+            cycles = 2;
+        } else if ((op & 0x000Fu) == 0x0004u) {
+            /* MOV.B Rm,@(R0,Rn) */
+            b->write8(b->user, c->r[0] + c->r[n], (uint8_t)c->r[m]);
+            cycles = 2;
+        } else if ((op & 0x000Fu) == 0x0005u) {
+            /* MOV.W Rm,@(R0,Rn) */
+            b->write16(b->user, c->r[0] + c->r[n], (uint16_t)c->r[m]);
             cycles = 2;
         } else if ((op & 0x000Fu) == 0x0006u) {
             /* MOV.L Rm,@(R0,Rn) */

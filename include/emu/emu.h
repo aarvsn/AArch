@@ -113,12 +113,12 @@ const emu_core_vtable_t *emu_core_beatle_nes_redux(void);/* NES / Famicom      *
 const emu_core_vtable_t *emu_core_supersnes(void);       /* SNES               */
 const emu_core_vtable_t *emu_core_mgbax(void);           /* Game Boy Advance   */
 const emu_core_vtable_t *emu_core_finalburn(void);       /* Genesis / Mega Drive */
-const emu_core_vtable_t *emu_core_beatle_psx(void);      /* PlayStation (skeleton) */
-const emu_core_vtable_t *emu_core_mds_a(void);           /* Nintendo DS (skeleton) */
-const emu_core_vtable_t *emu_core_ms_32(void);           /* Sega 32X (skeleton) */
-const emu_core_vtable_t *emu_core_supersaturn(void);     /* Sega Saturn (skeleton) */
-const emu_core_vtable_t *emu_core_m64_b(void);           /* Nintendo 64 (skeleton) */
-const emu_core_vtable_t *emu_core_supercastpro(void);    /* Dreamcast (skeleton) */
+const emu_core_vtable_t *emu_core_beatle_psx(void);      /* PlayStation */
+const emu_core_vtable_t *emu_core_mds_a(void);           /* Nintendo DS */
+const emu_core_vtable_t *emu_core_ms_32(void);           /* Sega 32X */
+const emu_core_vtable_t *emu_core_supersaturn(void);     /* Sega Saturn */
+const emu_core_vtable_t *emu_core_m64_b(void);           /* Nintendo 64 */
+const emu_core_vtable_t *emu_core_supercastpro(void);    /* Sega Dreamcast */
 
 /*
  * Core status used by frontends to report real capability. Status values are

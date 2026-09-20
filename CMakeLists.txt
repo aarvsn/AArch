@@ -106,6 +106,8 @@ add_library(emu_common STATIC
     src/common/registry.c
     src/common/skeleton.c
     src/common/sh2.c
+    src/common/arm.c
+    src/common/sh4.c
 )
 target_compile_definitions(emu_common PRIVATE
     $<$<BOOL:${EMU_BUILD_MGBX}>:EMU_BUILD_MGBX=1>
@@ -120,6 +122,9 @@ target_compile_definitions(emu_common PRIVATE
     $<$<BOOL:${EMU_BUILD_M64_B}>:EMU_BUILD_M64_B=1>
     $<$<BOOL:${EMU_BUILD_SUPERCASTPRO}>:EMU_BUILD_SUPERCASTPRO=1>
 )
+if(UNIX)
+    target_link_libraries(emu_common PUBLIC m)
+endif()
 target_include_directories(emu_common PUBLIC include)
 target_include_directories(emu_common PRIVATE src)
 emu_apply_flags(emu_common)

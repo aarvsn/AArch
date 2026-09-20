@@ -152,8 +152,10 @@ static const emu_core_info_t registry[] = {
     { "beatle-psx", EMU_STATUS_PARTIAL,
       "PlayStation: R3000A+GTE+GPU+DMA+timers, PS-X EXE loader; no CD/SPU",
       ref_psx },
-    { "mds-a", EMU_STATUS_SKELETON,
-      "Nintendo DS: ROM detection only; dual ARM not implemented",
+    { "mds-a", EMU_STATUS_PARTIAL,
+      "Nintendo DS: ARM946E-S + ARM7TDMI (ARM+Thumb), direct-boot from "
+      ".nds header, timers, IPC, IRQ, BG bitmap modes 3/5 scanout; no 3D, "
+      "sprites, sound, touch or card bus",
       ref_ds },
     { "ms-32", EMU_STATUS_PARTIAL,
       "Sega 32X: SH-2 x2 + adapter + COMM + VDP packed-pixel over finalburn; "
@@ -167,8 +169,10 @@ static const emu_core_info_t registry[] = {
       "Nintendo 64: R4300i (MIPS III) + CP0/exceptions, PI DMA, SI, VI "
       "framebuffer output, no-PIF boot model; RSP, audio and TLB are stubs",
       ref_n64 },
-    { "supercastpro", EMU_STATUS_SKELETON,
-      "Dreamcast: disc detection only; SH-4/PowerVR not implemented",
+    { "supercastpro", EMU_STATUS_PARTIAL,
+      "Dreamcast: SH-4 (integer + SP FPU subset), TMU, direct-boot from "
+      "IP.BIN, PVR2 display-controller scanout; no Tile Accelerator, "
+      "AICA sound, GD-ROM or Maple",
       ref_dc },
 };
 

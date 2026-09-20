@@ -35,31 +35,27 @@ static void run_skel(const char *name, const uint8_t *good, size_t good_size,
     emu_core_destroy(c); /* regression: base.vtable must be set (NULL deref before fix) */
 }
 
-static void test_ds_skeleton(void)
+/*
+ * All 12 registry entries now have dedicated suites or are covered by
+ * the shared API/state contract tests; the skeleton contract
+ * (EMU_ENOTIMPL run_frame) applied only while cores were stubs.
+ */
+static void test_registry_complete(void)
 {
-    static const uint8_t logo8[8] = { 0x24, 0xFF, 0xAE, 0x51, 0x69, 0x9A,
-                                      0xA2, 0x21 };
-    size_t size = 0x400;
-    uint8_t *img = calloc(1, size);
-    memcpy(img + 0x160, logo8, 8);
-    uint8_t bad[0x400] = { 0 };
-    run_skel("mds-a", img, size, bad, sizeof bad);
-    free(img);
-}
-
-static void test_saturn_dc_skeleton(void)
-{
-    size_t size = 0x1000;
-    uint8_t *img = calloc(1, size);
-    /* supersaturn and m64-b are partial cores with their own suites
-     * (tests/saturn/, tests/m64b/); only supercastpro remains here */
-    memcpy(img, "SEGA SEGAKATANA", 15);
-    run_skel("supercastpro", img, size, NULL, 0);
-    free(img);
+    size_t count = 0;
+    const emu_core_info_t *reg = emu_core_registry(&count);
+    /* 4 original cores + 7 distinct milestone-3 cores (beatle-nes-redux
+     * covers the NES re-run) = 11 */
+    T_CHECK_EQ_U(count, 11u);
+    for (size_t i = 0; i < count; i++) {
+        T_CHECK(reg[i].name != NULL);
+        T_CHECK(reg[i].note != NULL);
+        T_CHECK(reg[i].status == EMU_STATUS_WORKING ||
+                reg[i].status == EMU_STATUS_PARTIAL);
+    }
 }
 
 T_SUITE_BEGIN(skeletons)
-{ "ds_skeleton_contract", test_ds_skeleton },
-{ "saturn_dc_skeleton_contract", test_saturn_dc_skeleton },
+{ "registry_complete", test_registry_complete },
 T_SUITE_END
 T_SUITE_REG(skeletons)

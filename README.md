@@ -20,15 +20,13 @@ across host platforms and endianness.
 | ms-32 | Sega 32X | partial | SH-2 x2 + adapter (COMM, DREQ, interrupts) + VDP packed-pixel over finalburn; RLE mode, autosprites and PWM audio pending |
 | beatle-psx | Sony PlayStation | partial | R3000A + GTE + GPU (1 MiB VRAM, textured/semi-transparent rendering) + DMA + timers, PS-X EXE loader (no BIOS); CD-ROM and SPU not implemented |
 | supersaturn | Sega Saturn | partial | SH-2 x2, SCU (direct+indirect DMA, interrupts, timers), VDP1 (sprites/polygons/clipping, bank+LUT+RGB colors), SMPC INTBACK, IP.BIN boot (no BIOS); VDP2 compositing, SCSP sound and CD block are stubs |
-| mds-a | Nintendo DS | skeleton | ROM detection and validation only |
+| mds-a | Nintendo DS | partial | ARM946E-S + ARM7TDMI interpreters (full ARM + Thumb), direct-boot from the .nds header (no BIOS), dual timers with cascade, IPC sync, per-CPU IRQ model, 2D BG bitmap modes 3/5 scanout (dual-screen 256x384 output); 3D engine, sprite compositing, sound, touch and card bus are stubs |
 | m64-b | Nintendo 64 | partial | R4300i (MIPS III) interpreter + CP0/exceptions, PI DMA, SI PIF DMA, VI framebuffer output (16/32 bpp), no-PIF boot (IPL3 from cart runs in DMEM); RSP, AI audio and TLB not implemented |
-| supercastpro | Sega Dreamcast | skeleton | Disc detection and validation only |
+| supercastpro | Sega Dreamcast | partial | SH-4 interpreter (integer + single-precision FPU subset incl. FIPR/FTRV), TMU with TUNI interrupts, direct-boot from IP.BIN (no BIOS), PVR2 display-controller scanout (RGB565/888/0888); Tile Accelerator, AICA sound, GD-ROM and Maple input are stubs |
 
 **working** — boots, runs, produces audio, save states, suite green.
 **partial** — implements a documented subset of the hardware; software
 limited to that subset runs, remaining gaps are listed in the table.
-**skeleton** — format detection and validation only; it refuses to emulate
-rather than pretending.
 
 ## Building
 
@@ -109,9 +107,9 @@ explicit little-endian serialization — never raw pointers.
 ## Tests
 
 `tests/` is organized per system plus common suites (API lifecycle, state
-contract, ROM detection, skeleton contracts). Expected values derive from
+contract, ROM detection, registry). Expected values derive from
 hardware specifications — hand-assembled opcodes and datasheet formulas,
-never emulator internals. Current status: **387 tests, 0 failed
+never emulator internals. Current status: **410 tests, 0 failed
 assertions**, clean under ASan+UBSan and `-Werror`.
 
 ## License

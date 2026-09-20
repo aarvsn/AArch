@@ -579,3 +579,83 @@ Stage Summary:
 - Saturn and N64 cores run machine-level code (tested with hand-assembled
   programs through the documented boot models); retail software needs the
   documented stubs implemented (VDP2/SCSP/CD for Saturn; RSP/AI for N64).
+
+---
+Task ID: 6
+Agent: Super Z (lead engineer)
+Task: Fill the gaps - implement the last two skeleton cores (mds-a DS, supercastpro DC), push with the new token
+
+Work Log:
+- Restored the sandbox toolchain (cmake 4.4.3 via pip) and verified the baseline: 387
+  tests green on the committed tree; reset the working tree (file-mode noise) and
+  removed the .env sandbox artifact that had reappeared on disk.
+- Wrote src/common/arm.{c,h}: shared ARMv4T + ARMv5TE interpreter (~1200 lines) for
+  both DS CPUs - full ARM condition/flag model, register-specified and immediate
+  shifts incl. RRX, MUL/MLA/UMULL/UMLAL/SMULL/SMLAL, SWP, halfword/signed transfers
+  (H-bit discriminator vs the multiply block), LDM/STM with user-bank transfers and
+  SPSR exception return, MSR/MRS, BX/BLX, CLZ/QADD/QSUB/QDADD/QDSUB/SMULxy/SMLAxy/
+  SMULWy/SMLAWy (v5TE flag), banked r8-r12/r13/r14/SPSRs, SWI/UND/PABT/DABT/IRQ/FIQ
+  vectoring with correct LR conventions, complete Thumb v1 set (formats 1-19 with
+  BL long form), optional CP15 MRC/MCR hooks.
+- Bugs the DS tests caught (each reproduced failing first): halfword-transfer check
+  collided with the multiply block tail (1001) - H bit added as discriminator; CLZ
+  reads Rd from [19:16]; MSR(register) mask needed [11:4]==0 or CLZ aliased into it;
+  BX mask value was wrong (0x01200010 vs 0x012FFF10); MCR/MRC decoded under the
+  LDC/STC UND branch; UMULL signedness bit inverted; UMULL test encoding itself was
+  wrong; KEYINPUT was placed in the high half of the word; IPCSYNC send/IRQ bits
+  reworked (bit14 = IRQ enable, remote latch); I/O range had to be removed from the
+  RAM pointer helper so dynamic registers (KEYINPUT/VCOUNT/IE/IF/IME/IPCSYNC) get
+  handled at all; frame-end VCount wraps to 0; unrendered framebuffer rows are
+  opaque black; the ARM9 v5te flag was never set in ds_create.
+- mds-a (skeleton -> partial, src/mds-a/ds.{c,h} ~1000 lines): dual shared-ARM
+  machine, documented direct-boot from the .nds header (ARM9/ARM7 code copied to
+  header addresses, System mode, masked IRQ/FIQ, documented stacks), 4 MiB main RAM,
+  ITCM/DTCM with CP15 c9 region registers (defaults 0x0100000E/0x08000006) and
+  accepted-and-stored c1/c3/c7/c8/c10, VRAM banks A-G at default linear addresses,
+  shared+ARM7 WRAM, per-CPU 4x16-bit timers (prescalers, cascade, IRQ), IPCSYNC
+  send/recv crossing between CPUs, IE/IF/IME per CPU with VBlank/VCount/Timer/IPC
+  sources, KEYINPUT active-low (A..Y bits 0-11), 263-line frame model at
+  67.028/33.514 MHz, dual-engine BG bitmap scanout: modes 3 and 5 (page bit) from
+  VRAM A (top) and B (bottom), 256x384 XRGB8888 output. Save states serialize both
+  CPUs + machine. Not implemented (documented): 3D, sprites, sound, touch, card bus,
+  Wi-Fi, cache modeling.
+- Wrote src/common/sh4.{c,h}: shared SH-4 interpreter (~900 lines) - full SH-2-family
+  integer set, DT, banked R0-R7 via SR.RB, extended system registers
+  (SSR/SPC/SGR/DBR/FPUL/FPSCR with the documented 5A/6A STS/LDS codes), TRAPA
+  vectors VBR+0x100+imm*4, controller-supplied interrupt vectors with BL/I gating,
+  and the single-precision FPU subset: FADD/FSUB/FMUL/FDIV/FCMP.EQ/FCMP.GT/FMAC,
+  FABS/FNEG/FSQRT/FLDI0/FLDI1, FLOAT/FTRC, all FMOV.S forms, FIPR, FTRV (XMTRX in
+  XF), FPSCR.FR bank switch and DN denormal flush. Documented simplifications:
+  PR=1 executes as single, rounding mode stored, unsupported FPU ops are illegal.
+- supercastpro (skeleton -> partial, src/supercastpro/dc.{c,h} ~600 lines): SH-4
+  machine with P0/P1/P2/P3/P4 decode (P4 on-chip module area for TMU/INTC/SCIF,
+  URAM + P4 mirror, boot ROM mirror, DC peripheral window), 16 MiB RAM, 8 MiB VRAM,
+  AICA wave RAM, flash stub, TMU channels 0-2 (TSTR/TCOR/TCNT/TCR, underflow +
+  TUNI0-2 interrupts), PVR2 display-controller scanout via FB_R_CTRL/FB_R_SIZE/
+  FB_R_SOF1 (RGB565/888/0888, per-format byte stride), documented direct-boot from
+  IP.BIN (boot LBA at 0x300, byte count at 0x308 -> 0x8C010000, SR = BL|MD,
+  r15 = 0x8CFF0000). Save states serialize the CPU + machine. Not implemented
+  (documented): Tile Accelerator, AICA sound, GD-ROM, G2 DMA, Maple.
+- Bugs the DC tests caught: SH4_SR_MASK was missing RB/BL (banked-register test
+  caught it); FTRC read its source from the m field instead of n; P4 generic
+  peripheral window shadowed the on-chip TMU area (decode order); boot copy went to
+  RAM offset 0x00100000 instead of 0x00010000 (0x8C010000 - 0x8C000000); RGB565
+  scanout used a 4-byte stride. Test-side hand-assembly errors were also caught and
+  fixed (SUB operand order, mov r1,r0 vs mov r0,r1, MOVA/literal placement, 8-bit
+  immediate sign extension, LDS-VBR vs LDC-SR, TMU test had SR.I masking TUNI0).
+- libm linked for sqrtf (UNIX only). registry/README/emu.h: mds-a and supercastpro
+  -> partial with honest capability notes; skeleton-contract tests retired in favor
+  of a registry-completeness test.
+- Tests: 387 -> 410 (ds 13, dc 11 minus 2 skeleton-contract retirements plus a
+  registry test); 0 failed assertions; clean under ASan+UBSan and -Werror; CLI
+  --list shows 11 cores (5 working / 6 partial / 0 skeleton).
+- Pushed with the new token (scrubbed from the remote URL after the push):
+  43ec650 (mds-a + supercastpro + shared ARM/SH-4 interpreters).
+
+Stage Summary:
+- Registry now: 5 working / 6 partial / 0 skeleton. Every core named in milestone 3
+  is at least partial with a documented gap list.
+- Shared interpreters in src/common: SH-2, ARM (v4T/v5TE), SH-4.
+- Suggested next steps: DS 2D compositing (sprites/text BGs) and card DMA; DC Tile
+  Accelerator TA-list parsing and AICA ARM7; GBA-style save-state fuzzing for the
+  new cores; retail-software boot paths remain gated on the documented stubs.

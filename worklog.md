@@ -659,3 +659,51 @@ Stage Summary:
 - Suggested next steps: DS 2D compositing (sprites/text BGs) and card DMA; DC Tile
   Accelerator TA-list parsing and AICA ARM7; GBA-style save-state fuzzing for the
   new cores; retail-software boot paths remain gated on the documented stubs.
+
+---
+Task ID: 7
+Agent: Super Z (lead engineer)
+Task: Fill the gaps - repo hygiene (.env), zero-warning test build, note fixes, push with the new token
+
+Work Log:
+- Verified the baseline on the committed tree (restored cmake 4.4.3 via pip):
+  410 tests, 0 failed assertions; found one warning - run_skel() unused in
+  tests/common/cores.c (leftover after the skeleton-contract retirement).
+- Deleted the dead run_skel() and the stale skeleton-contract header comment;
+  renamed the suite skeletons -> registry (test_main.c declaration + call
+  follow). Zero warnings after the change.
+- Fixed the supersaturn registry note: it embedded "(320x224, 44100 Hz)"
+  inline while the CLI already appends the same info from core caps -
+  duplicated suffix removed.
+- README: the finalburn row pointed at "README notes in the repo wiki of
+  history" (a page that does not exist). Replaced with the documented m68k
+  approximations: coarse cycle counts, unaligned accesses aligned silently,
+  RESET is a no-op.
+- .env: found tracked AND on disk locally (sandbox artifact reappearing).
+  The remote already had it removed (9ad5a6f, prior session); local branch
+  was stale and contained a divergent duplicate of the session-6 worklog
+  commit (fee615f vs remote 9ad5a6f).
+- Push reconciliation WITHOUT force: fetched, confirmed worklog content
+  identical at both tips, rebased, then normalized the 59 file-mode-noise
+  files (sandbox had restored executable bits) to the remote's canonical
+  modes, adopted the remote's stricter .gitignore (upload/, download/,
+  db/, .env, tool-results/, build*/, cmake-build-*/, *.o, *.a), soft-reset
+  to the remote tip and committed the real delta as one commit.
+- Pushed with the new token via a one-shot URL (token never written to
+  .git/config): 9ad5a6f..b7fd2a5 main -> main. ls-remote confirms remote
+  main == local HEAD; zero unpushed commits.
+- Token scope check: x-oauth-scopes: repo only (no workflow scope) - CI
+  stays at ci/github-ci.yml per its header note; activating it requires
+  copying to .github/workflows/ci.yml with a workflow-scoped token or in
+  the GitHub UI.
+
+Stage Summary:
+- Registry: 5 working / 6 partial / 0 skeleton; 410 tests, 0 failed
+  assertions; zero warnings; ASan/UBSan status unchanged from session 6.
+- Milestone-3 hygiene tasks complete: no GLM/sandbox artifacts tracked
+  (.env deleted, .gitignore hardened against regeneration), README
+  professional and accurate, Termux path documented + script verified in
+  scripts/build-termux.sh, CI parked at ci/github-ci.yml with instructions.
+- Remaining (documented, honest): DS 2D compositing + card DMA; DC Tile
+  Accelerator + AICA; Saturn VDP2/SCSP/CD; N64 RSP/AI; PSX CD/SPU; 32X
+  RLE/autosprites/PWM; retail-software boot gated on those stubs.

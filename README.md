@@ -16,7 +16,7 @@ across host platforms and endianness.
 | beatle-nes-redux | NES | working | 6502, mappers 0/1/2/3/4, dot PPU, APU+DMC, save states |
 | supersnes | SNES | partial | 65C816, LoROM/HiROM, DMA+HDMA, PPU modes 0/1/7; S-SMP/DSP stub, PPU modes 2-6 missing |
 | mgbax | Game Boy Advance | working | ARM7TDMI+Thumb, HLE BIOS, PPU modes 0-4, DMA, PSG+FIFO audio |
-| finalburn | Genesis / Mega Drive | partial | 68000, Z80, VDP mode-4, PSG, YM2612; coarse cycle counts, see README notes in the repo wiki of history |
+| finalburn | Genesis / Mega Drive | partial | 68000, Z80, VDP mode-4, PSG, YM2612; coarse cycle counts, unaligned accesses aligned silently, RESET is a no-op |
 | ms-32 | Sega 32X | partial | SH-2 x2 + adapter (COMM, DREQ, interrupts) + VDP packed-pixel over finalburn; RLE mode, autosprites and PWM audio pending |
 | beatle-psx | Sony PlayStation | partial | R3000A + GTE + GPU (1 MiB VRAM, textured/semi-transparent rendering) + DMA + timers, PS-X EXE loader (no BIOS); CD-ROM and SPU not implemented |
 | supersaturn | Sega Saturn | partial | SH-2 x2, SCU (direct+indirect DMA, interrupts, timers), VDP1 (sprites/polygons/clipping, bank+LUT+RGB colors), SMPC INTBACK, IP.BIN boot (no BIOS); VDP2 compositing, SCSP sound and CD block are stubs |

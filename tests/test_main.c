@@ -123,7 +123,7 @@ int t_run_all(void)
 void t_register_common(void);
 void t_register_state(void);
 void t_register_romdetect(void);
-void t_register_skeletons(void);
+void t_register_registry(void);
 #if EMU_BUILD_MGBX
 void t_register_mgbx(void);
 #endif
@@ -161,7 +161,7 @@ int main(void)
     t_register_common();
     t_register_state();
     t_register_romdetect();
-    t_register_skeletons();
+    t_register_registry();
 #if EMU_BUILD_MGBX
     t_register_mgbx();
 #endif

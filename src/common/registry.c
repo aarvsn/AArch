@@ -163,7 +163,7 @@ static const emu_core_info_t registry[] = {
       ref_32x },
     { "supersaturn", EMU_STATUS_PARTIAL,
       "Sega Saturn: SH-2 x2, SCU DMA+IRQ+timers, VDP1 sprites/polys, SMPC "
-      "INTBACK, IP.BIN boot; VDP2/SCSP/CD stub (320x224, 44100 Hz)",
+      "INTBACK, IP.BIN boot; VDP2/SCSP/CD stub",
       ref_saturn },
     { "m64-b", EMU_STATUS_PARTIAL,
       "Nintendo 64: R4300i (MIPS III) + CP0/exceptions, PI DMA, SI, VI "

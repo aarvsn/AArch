@@ -707,3 +707,71 @@ Stage Summary:
 - Remaining (documented, honest): DS 2D compositing + card DMA; DC Tile
   Accelerator + AICA; Saturn VDP2/SCSP/CD; N64 RSP/AI; PSX CD/SPU; 32X
   RLE/autosprites/PWM; retail-software boot gated on those stubs.
+
+---
+Task ID: 8
+Agent: Super Z (lead engineer)
+Task: DS 2D compositing for mds-a (text/affine/extended BGs + OBJs), sanitizer pass
+
+Work Log:
+- Wrote src/mds-a/ds2d.c (~640 lines): per-engine 2D composition from the
+  hardware reference. BG layer types per DISPCNT mode (0-5; mode 4 kept ==
+  mode 3 as documented, modes 6/7 unsupported -> layers off), text BGs
+  (4/8bpp, char base bits 2-3, screen base bits 8-12 in 2K blocks, sizes
+  with s+1/s+2/s+3 split blocks, h/v flips, per-BG scrolls), affine BGs
+  (8bpp, char base bits 2-7, BYTE map entries, 16-128 tile maps, wrap bit
+  13, center-reference .8 transform with the mgbax +0.5 convention),
+  extended-affine BGs (formats 0-6; tiled formats documented approximation:
+  tile data from region start; 16bpp bitmaps replace the old raw mode-3/5
+  scanout, 0x0000 transparent, bit 15 alpha flag ignored), OBJs (1D/2D
+  mapping, 2D wraps at map rows 32/16 entries per engine, 8bpp tiles take
+  two numbers, h/v flips, rot/scale via OAM+0x300 param sets, X wrap 512 /
+  Y wrap 256, double-size box extends half a size), priority composition
+  (prio 0..3, OBJs before BGs at equal priority, OAM order tie-break),
+  backdrop = BG pal entry 0, master brightness down/up (factor bits 0-5).
+- ds.c: engine B registers moved to the real 0x04001000 page (ARM9 io page
+  grew to 8 KiB), palette block at 0x06880000 (4 x 512B slots), OAM at
+  0x07000000/0x07000400, proper sub-word io reads (old code returned the
+  low byte/halfword of the aligned word for any offset), 16-bit io write
+  path, timer registers wired to the timer units on both CPUs (32/16-bit;
+  control write with enable reloads immediately - documented model),
+  save-state magic bumped to A2SM (format rev 2: palette/OAM serialized).
+- Renderer bugs the tests caught (each reproduced failing first):
+  text char base was decoded from the PRIORITY field (cnt & 3 instead of
+  (cnt >> 2) & 3); palette lookup indexed bytes instead of entries (x2);
+  affine map entries read as u16 (they are bytes); 2D OBJ stride used the
+  sprite width instead of the map row (32/16 entries, engine-dependent,
+  8bpp rows half); OBJ 1D flag read DISPCNT bit 14 (it is bit 13);
+  1D stride multiplied pixel width instead of tile width.
+- mgbax: three pre-existing UB sites surfaced by this session's sanitizer
+  run (previously reported clean): ARM branch sign-extension overflow
+  (cpu.c branch handler), three Thumb branch sign-extensions, and two APU
+  FIFO negative left shifts (fifo_cur[x] << 8 -> * 256). All replaced with
+  unsigned-shift/arithmetic-right-shift or multiplication idioms.
+- Tests: 410 -> 419. New: text_bg_tiles_and_scroll (4bpp/8bpp, flips,
+  palette banks, scroll), bg_priority_and_backdrop (cross-priority,
+  equal-priority BG order, backdrop), obj_sprites (placement, hflip,
+  disable bit, OBJ-vs-BG ties both ways, 1D vs 2D row addressing, 8bpp
+  full palette), obj_rotation_scaling (identity, 2x shrink, 90 degrees),
+  affine_bg_transform (identity, 2x shrink with 128px-map centering,
+  out-of-range vs wrap), engine_b_registers (0x04001000 page + palette
+  slot), timer_registers_via_bus (32/16-bit writes, reload semantics,
+  ARM7 path), master_brightness (down 21/63, up on black), forced_blank.
+  All-zero OAM decodes as 128 sprites at (0,0) sharing tile 0 - tests
+  disable unused slots first (as real software does).
+- 419 tests, 0 failed assertions; zero warnings; ASan+UBSan clean (the
+  earlier runtime errors were the mgbax UB fixes above, now gone).
+- Sandbox note: the environment reset mid-session again (cmake wiped, .env
+  and 2-line .gitignore restored, file modes flipped). Recovered each time;
+  the accidental `git add -A` commit that picked up build-asan/ was reset
+  locally before any push. Final commit contains only the 9 real files.
+- Pushed with the one-shot token URL (never written to .git/config).
+
+Stage Summary:
+- mds-a: 2D engines now full per-engine composition; registry/README
+  updated (still partial: 3D, blending/windows, sound, touch, card bus,
+  VRAM banking, modes 6/7 remain documented gaps).
+- Suggested next steps: DC Tile Accelerator + AICA ARM7; card-bus DMA for
+  DS; alpha blending + windows for the DS 2D engines (BLDCNT/BLDALPHA/
+  WININ/WINOUT are already in the io page, just unmodeled); GBA-style
+  save-state fuzzing for the new 2D paths.

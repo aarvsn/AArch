@@ -352,19 +352,37 @@ static void engine_a_mode3_scanout(void)
         T_FAIL("boot failed");
         return;
     }
-    /* engine A: mode 3 + BG2 enable */
-    w32(d->a9.io, 0x000u, 0x0403u);
+    /* mode 3: BG3 = extended affine, format 3 (16bpp 256x256), base 0,
+     * identity transform (center reference = 128 << 8) */
+    w32(d->a9.io, 0x000u, 0x0803u); /* DISPCNT: mode 3, BG3 enable */
+    w16(d->a9.io, 0x00Eu, 0x000Cu); /* BG3CNT: format 3, screen base 0 */
+    w16(d->a9.io, 0x030u, 0x0100u); /* BG3PA = 1.0 */
+    w16(d->a9.io, 0x036u, 0x0100u); /* BG3PD = 1.0 */
+    w32(d->a9.io, 0x038u, 0x8000u); /* BG3X = 128 << 8 */
+    w32(d->a9.io, 0x03Cu, 0x8000u); /* BG3Y = 128 << 8 */
     for (uint32_t y = 0; y < 192u; y++)
         for (uint32_t x = 0; x < 256u; x++)
             w16(d->vram_a, y * 512u + x * 2u, 0x7C1Fu);
     ds_render(d);
     /* BGR555 0x7C1F: r=31 g=0 b=31 -> (v<<3)|(v>>2) = 255 per channel */
     T_CHECK_EQ_U(d->fb[0], EMU_PIXEL(255, 0, 255));
-    T_CHECK_EQ_U(d->fb[192u * 256u], 0xFF000000u);
+    T_CHECK_EQ_U(d->fb[192u * 256u], 0xFF000000u); /* engine B blank */
 
-    /* mode 5 page 1 */
-    w32(d->a9.io, 0x000u, 0x0415u);
-    for (uint32_t y = 0; y < 192u; y++)
+    /* ext format 2 (16bpp 128x128) on BG3 */
+    w16(d->a9.io, 0x00Eu, 0x0008u); /* BG3CNT: format 2, base 0 */
+    w16(d->vram_a, 2u, 0x03E0u);    /* tex (1,0) */
+    ds_render(d);
+    T_CHECK_EQ_U(d->fb[1], EMU_PIXEL(0, 255, 0));
+
+    /* mode 5: BG2 extended bitmap; the page bit shifts the base by the
+     * documented 0xA000 core-convention stride */
+    w32(d->a9.io, 0x000u, 0x0415u); /* mode 5, BG2 enable, page 1 */
+    w16(d->a9.io, 0x00Cu, 0x000Cu); /* BG2CNT: format 3, base 0 */
+    w16(d->a9.io, 0x020u, 0x0100u); /* BG2PA = 1.0 */
+    w16(d->a9.io, 0x026u, 0x0100u); /* BG2PD = 1.0 */
+    w32(d->a9.io, 0x028u, 0x8000u); /* BG2X = 128 << 8 */
+    w32(d->a9.io, 0x02Cu, 0x8000u); /* BG2Y = 128 << 8 */
+    for (uint32_t y = 0; y < 160u; y++) /* page 1 fits below 128 KiB */
         for (uint32_t x = 0; x < 256u; x++)
             w16(d->vram_a, 0xA000u + y * 512u + x * 2u, 0x03E0u);
     ds_render(d);
@@ -495,6 +513,377 @@ static void v5te_clz_and_qadd(void)
     ds_free(d);
 }
 
+/* ---- 2D compositing tests (expected values hand-computed from the
+ * documented register/tile/map formats, never from emulator internals) ---- */
+
+static void text_bg_tiles_and_scroll(void)
+{
+    static const uint32_t arm9[] = { 0xEAFFFFFEu };
+    struct ds *d = ds_boot_prog(arm9, 1, NULL, 0);
+    if (d == NULL) {
+        T_FAIL("boot failed");
+        return;
+    }
+    /* mode 0, BG0 on: 16-color text BG, char base 0, screen base 1 */
+    w32(d->a9.io, 0x000u, 0x0100u);
+    w16(d->a9.io, 0x008u, 0x0100u);
+    /* BG palette: entry 1 magenta, entry 33 (bank 2, idx 1) blue-ish */
+    w16(d->pal, 2u, 0x7C1Fu);
+    w16(d->pal, 66u, 0x0C00u); /* BGR555 0x0C00: b field (bits 10-14) = 3 */
+    /* tile 1: pixel (0,0) = 1 (4bpp pixel 0 = low nibble), rest transparent */
+    d->vram_a[32] = 0x01;
+    /* map entries at screen base 1 (0x800) */
+    w16(d->vram_a, 0x800u, 0x0001u); /* tile 1                    */
+    w16(d->vram_a, 0x802u, 0x0401u); /* tile 1, hflip             */
+    w16(d->vram_a, 0x804u, 0x0801u); /* tile 1, vflip             */
+    w16(d->vram_a, 0x806u, 0x2001u); /* tile 1, palette bank 2 */
+    ds_render(d);
+    T_CHECK_EQ_U(d->fb[0], EMU_PIXEL(255, 0, 255));
+    T_CHECK_EQ_U(d->fb[1], 0xFF000000u);
+    T_CHECK_EQ_U(d->fb[15], EMU_PIXEL(255, 0, 255)); /* hflip mirror */
+    T_CHECK_EQ_U(d->fb[8], 0xFF000000u);
+    T_CHECK_EQ_U(d->fb[7u * 256u + 16u], EMU_PIXEL(255, 0, 255));
+    T_CHECK_EQ_U(d->fb[16], 0xFF000000u);
+    T_CHECK_EQ_U(d->fb[24], EMU_PIXEL(0, 0, 24)); /* bank 2 */
+
+    /* scroll: HOFS = 1 shifts sampling one pixel right */
+    w16(d->a9.io, 0x010u, 1u);
+    ds_render(d);
+    T_CHECK_EQ_U(d->fb[0], 0xFF000000u);
+    T_CHECK_EQ_U(d->fb[14], EMU_PIXEL(255, 0, 255));
+    w16(d->a9.io, 0x010u, 0u);
+
+    /* 8bpp: same map, tile 2, palette = raw index */
+    w16(d->a9.io, 0x008u, 0x0180u);
+    w16(d->vram_a, 0x800u, 0x0002u);
+    d->vram_a[128] = 5u; /* 8bpp tile 2 pixel (0,0) */
+    w16(d->pal, 10u, 0x03E0u);
+    ds_render(d);
+    T_CHECK_EQ_U(d->fb[0], EMU_PIXEL(0, 255, 0));
+    T_CHECK_EQ_U(d->fb[1], 0xFF000000u);
+    ds_free(d);
+}
+
+static void bg_priority_and_backdrop(void)
+{
+    static const uint32_t arm9[] = { 0xEAFFFFFEu };
+    struct ds *d = ds_boot_prog(arm9, 1, NULL, 0);
+    if (d == NULL) {
+        T_FAIL("boot failed");
+        return;
+    }
+    /* backdrop = BG palette entry 0 = white */
+    w16(d->pal, 0u, 0x7FFFu);
+    /* BG0: prio 1, screen base 2; tile 1 filled with color 1 (magenta) */
+    w16(d->pal, 2u, 0x7C1Fu);
+    w32(d->a9.io, 0x000u, 0x0300u); /* BG0 + BG1 on */
+    w16(d->a9.io, 0x008u, 0x0201u); /* BG0CNT prio 1, base 2 */
+    w16(d->a9.io, 0x00Au, 0x0300u); /* BG1CNT prio 0, base 3 */
+    for (uint32_t i = 0; i < 32u; i++)
+        d->vram_a[32u + i] = 0x11u;   /* tile 1: all color 1 */
+    w16(d->vram_a, 0x1000u, 0x0001u); /* BG0 map (0,0) */
+    /* BG1: prio 0 wins the tie; tile 2 pixel 0 transparent, rest color 2 */
+    w16(d->pal, 4u, 0x001Fu);
+    d->vram_a[64] = 0x20u;
+    w16(d->vram_a, 0x1800u, 0x0002u); /* BG1 map (0,0) */
+    ds_render(d);
+    /* BG1 pixel (0,0) is transparent by design: BG0 (prio 1) shows through */
+    T_CHECK_EQ_U(d->fb[0], EMU_PIXEL(255, 0, 255));
+    T_CHECK_EQ_U(d->fb[1], EMU_PIXEL(255, 0, 0));    /* BG1 opaque, prio 0 */
+    /* equal priority: BG0 (lower layer number) wins over BG1 */
+    w16(d->a9.io, 0x00Au, 0x0201u); /* BG1CNT prio 1 too */
+    ds_render(d);
+    T_CHECK_EQ_U(d->fb[0], EMU_PIXEL(255, 0, 255)); /* BG0 magenta    */
+    T_CHECK_EQ_U(d->fb[1], EMU_PIXEL(255, 0, 255));
+    /* both layers off: backdrop white everywhere */
+    w32(d->a9.io, 0x000u, 0x0000u);
+    ds_render(d);
+    T_CHECK_EQ_U(d->fb[0], EMU_PIXEL(255, 255, 255));
+    T_CHECK_EQ_U(d->fb[40000u], EMU_PIXEL(255, 255, 255));
+    ds_free(d);
+}
+
+static void obj_sprites(void)
+{
+    static const uint32_t arm9[] = { 0xEAFFFFFEu };
+    struct ds *d = ds_boot_prog(arm9, 1, NULL, 0);
+    if (d == NULL) {
+        T_FAIL("boot failed");
+        return;
+    }
+    /* OBJ palette entry 1 magenta; OBJ tile 0 pixel (0,0) = 1.
+     * All-zero OAM decodes as 128 sprites at (0,0) sharing tile 0 -
+     * disable the unused slots first, as real software does. */
+    w16(d->pal, 0x202u, 0x7C1Fu);
+    d->vram_c[0] = 0x01;
+    for (unsigned i = 0; i < 128u; i++)
+        ds9_write32(d, 0x07000000u + i * 8u, 0x0200u); /* attr0: disabled */
+    /* sprite 0: 8x8 4bpp 2D, (10,5), prio 0, palette 0 */
+    ds9_write32(d, 0x07000000u, 0x000A0005u); /* attr0=y5 attr1=x10 */
+    ds9_write32(d, 0x07000004u, 0x00000000u); /* attr2: tile 0      */
+    /* sprite 1: same tile, hflip, at (20,5) */
+    ds9_write32(d, 0x07000008u, 0x10140005u);
+    ds9_write32(d, 0x0700000Cu, 0x00000000u);
+    /* sprite 2: disabled (attr0 bit 9, no rot/scale) */
+    ds9_write32(d, 0x07000010u, 0x001E0205u);
+    ds9_write32(d, 0x07000014u, 0x00000000u);
+
+    w32(d->a9.io, 0x000u, 0x1000u); /* OBJ on, 2D mapping */
+    ds_render(d);
+    T_CHECK_EQ_U(d->fb[5u * 256u + 10u], EMU_PIXEL(255, 0, 255));
+    T_CHECK_EQ_U(d->fb[5u * 256u + 11u], 0xFF000000u);
+    T_CHECK_EQ_U(d->fb[4u * 256u + 10u], 0xFF000000u);
+    T_CHECK_EQ_U(d->fb[5u * 256u + 27u], EMU_PIXEL(255, 0, 255)); /* hflip */
+    T_CHECK_EQ_U(d->fb[5u * 256u + 20u], 0xFF000000u);
+    T_CHECK_EQ_U(d->fb[5u * 256u + 30u], 0xFF000000u); /* disabled */
+
+    /* OBJ vs BG priority: sprites win ties at equal priority */
+    w16(d->pal, 2u, 0x7C1Fu);        /* BG palette entry 1 magenta */
+    w16(d->pal, 0x202u, 0x03E0u);    /* OBJ palette entry 1 green  */
+    for (uint32_t i = 0; i < 32u; i++)
+        d->vram_a[32u + i] = 0x11u;   /* BG tile 1: all magenta */
+    w16(d->vram_a, 0x800u, 0x0001u);
+    w16(d->a9.io, 0x008u, 0x0101u); /* BG0CNT prio 1, screen base 1 */
+    w32(d->a9.io, 0x000u, 0x1100u); /* BG0 + OBJ */
+    /* sprite 3: 8x8 at (0,0), tile 0, prio 1 -> tie with BG0 */
+    ds9_write32(d, 0x07000018u, 0x00000000u);
+    ds9_write32(d, 0x0700001Cu, 0x00000400u);
+    ds_render(d);
+    T_CHECK_EQ_U(d->fb[0], EMU_PIXEL(0, 255, 0));    /* OBJ wins tie */
+    T_CHECK_EQ_U(d->fb[1], EMU_PIXEL(255, 0, 255));  /* BG behind it */
+    /* drop the sprite to prio 2: BG (prio 1) takes over */
+    ds9_write32(d, 0x0700001Cu, 0x00000800u);
+    ds_render(d);
+    T_CHECK_EQ_U(d->fb[0], EMU_PIXEL(255, 0, 255));
+    /* backdrop (BG palette entry 0) shows where nothing covers */
+    w16(d->pal, 0u, 0x7FFFu);
+    ds_render(d);
+    T_CHECK_EQ_U(d->fb[8], EMU_PIXEL(255, 255, 255));
+
+    /* 1D vs 2D tile mapping: 16x16 sprite, tile 4, row-1 pixel differs */
+    d->vram_c[160] = 0x01;  /* 1D tile (1,0): 4*32 + 1*32 */
+    d->vram_c[192] = 0x01;  /* 1D tile (0,1): 4*32 + 1*2*32 */
+    w16(d->pal, 0x202u, 0x03E0u);
+    ds9_write32(d, 0x07000020u, 0x40280028u); /* y=40 x=40 size=1 */
+    ds9_write32(d, 0x07000024u, 0x00000004u); /* tile 4, prio 0   */
+    w32(d->a9.io, 0x000u, 0x3000u); /* OBJ only, 1D mapping */
+    ds_render(d);
+    T_CHECK_EQ_U(d->fb[40u * 256u + 48u], EMU_PIXEL(0, 255, 0));
+    T_CHECK_EQ_U(d->fb[48u * 256u + 40u], EMU_PIXEL(0, 255, 0));
+    /* 2D: tile (0,1) comes from n = 4 + 32 -> byte 1152, not 192 */
+    d->vram_c[192] = 0;
+    d->vram_c[1152] = 0x01;
+    w32(d->a9.io, 0x000u, 0x1000u); /* OBJ only, 2D mapping */
+    ds_render(d);
+    T_CHECK_EQ_U(d->fb[40u * 256u + 48u], EMU_PIXEL(0, 255, 0));
+    T_CHECK_EQ_U(d->fb[48u * 256u + 40u], EMU_PIXEL(0, 255, 0));
+
+    /* 8bpp OBJ: full palette, attr2 pal field unused */
+    d->vram_c[256] = 3u; /* 2D 8bpp tile 8 pixel (0,0) = 3 */
+    w16(d->pal, 0x206u, 0x001Fu);
+    ds9_write32(d, 0x07000028u, 0x003C203Cu); /* attr0=y60+8bpp attr1=x60 */
+    ds9_write32(d, 0x0700002Cu, 0x00000008u); /* tile 8 */
+    ds_render(d);
+    T_CHECK_EQ_U(d->fb[60u * 256u + 60u], EMU_PIXEL(255, 0, 0));
+    ds_free(d);
+}
+
+static void obj_rotation_scaling(void)
+{
+    static const uint32_t arm9[] = { 0xEAFFFFFEu };
+    struct ds *d = ds_boot_prog(arm9, 1, NULL, 0);
+    if (d == NULL) {
+        T_FAIL("boot failed");
+        return;
+    }
+    w16(d->pal, 0x202u, 0x03E0u); /* OBJ palette entry 1 green */
+    w32(d->a9.io, 0x000u, 0x1000u);
+    for (unsigned i = 0; i < 128u; i++)
+        ds9_write32(d, 0x07000000u + i * 8u, 0x0200u); /* disable all */
+    /* sprite 0: 8x8, rot/scale set 0, at (10,10) */
+    ds9_write32(d, 0x07000000u, 0x000A010Au);
+    ds9_write32(d, 0x07000004u, 0x00000000u);
+    /* param set 0: identity (PA = PD = 1.0) */
+    ds9_write32(d, 0x07000300u, 0x00000100u); /* PA=0x100 PB=0 */
+    ds9_write32(d, 0x07000304u, 0x01000000u); /* PC=0    PD=0x100 */
+    d->vram_c[0] = 0x01; /* OBJ tile 0 pixel (0,0) */
+    ds_render(d);
+    T_CHECK_EQ_U(d->fb[10u * 256u + 10u], EMU_PIXEL(0, 255, 0));
+    T_CHECK_EQ_U(d->fb[10u * 256u + 11u], 0xFF000000u);
+
+    /* 2x shrink (PA = PD = 0.5): screen (10,10) and (11,10) both sample
+     * texture (2,2)  [rx=-4 -> 128*-4>>8 = -2 -> +4 = 2] */
+    ds9_write32(d, 0x07000300u, 0x00800000u);
+    ds9_write32(d, 0x07000304u, 0x00800000u);
+    d->vram_c[0] = 0;
+    d->vram_c[9] = 0x01; /* tile 0 pixel (2,2) */
+    ds_render(d);
+    T_CHECK_EQ_U(d->fb[10u * 256u + 10u], EMU_PIXEL(0, 255, 0));
+    T_CHECK_EQ_U(d->fb[10u * 256u + 11u], EMU_PIXEL(0, 255, 0));
+
+    /* 90 degree rotation (PA=0 PB=-1.0 PC=1.0 PD=0): screen (10,17)
+     * maps to texture (1,0) [rx=-4 ry=3: tx = -3+4, ty = -4+4] */
+    ds9_write32(d, 0x07000300u, 0xFF000000u);
+    ds9_write32(d, 0x07000304u, 0x00000100u);
+    d->vram_c[9] = 0;
+    d->vram_c[0] = 0x10; /* tile 0 pixel (1,0) = high nibble */
+    ds_render(d);
+    T_CHECK_EQ_U(d->fb[17u * 256u + 10u], EMU_PIXEL(0, 255, 0));
+    ds_free(d);
+}
+
+static void affine_bg_transform(void)
+{
+    static const uint32_t arm9[] = { 0xEAFFFFFEu };
+    struct ds *d = ds_boot_prog(arm9, 1, NULL, 0);
+    if (d == NULL) {
+        T_FAIL("boot failed");
+        return;
+    }
+    /* mode 1, BG2 affine (8bpp tiles), char base 0, screen base 1 */
+    w32(d->a9.io, 0x000u, 0x0401u);
+    w16(d->a9.io, 0x00Cu, 0x0100u);
+    w16(d->pal, 10u, 0x03E0u); /* BG pal 5 green */
+    w16(d->pal, 12u, 0x001Fu); /* BG pal 6 red   */
+    d->vram_a[0] = 5u;         /* tile 0 pixel (0,0) */
+    d->vram_a[64] = 6u;        /* tile 1 pixel (0,0) */
+    d->vram_a[0x800u] = 0u;    /* affine map (byte entries): tile 0 */
+    /* identity: PA = PD = 1.0, center reference 128 << 8 */
+    w16(d->a9.io, 0x020u, 0x0100u);
+    w16(d->a9.io, 0x026u, 0x0100u);
+    w32(d->a9.io, 0x028u, 0x8000u);
+    w32(d->a9.io, 0x02Cu, 0x8000u);
+    ds_render(d);
+    T_CHECK_EQ_U(d->fb[0], EMU_PIXEL(0, 255, 0));
+
+    /* 2x shrink: center reference for a 128px map = 64 << 8; the screen
+     * center then samples tex (64,64) = tile (8,8) of the map */
+    w16(d->a9.io, 0x020u, 0x0080u);
+    w16(d->a9.io, 0x026u, 0x0080u);
+    w32(d->a9.io, 0x028u, 0x4000u);
+    w32(d->a9.io, 0x02Cu, 0x4000u);
+    d->vram_a[0x800u + 8u * 16u + 8u] = 1u; /* map (8,8) = tile 1 */
+    ds_render(d);
+    T_CHECK_EQ_U(d->fb[128u * 256u + 128u], EMU_PIXEL(255, 0, 0));
+
+    /* reference 0, no wrap: sample falls outside -> backdrop (black) */
+    w16(d->a9.io, 0x020u, 0x0100u);
+    w16(d->a9.io, 0x026u, 0x0100u);
+    w32(d->a9.io, 0x028u, 0u);
+    w32(d->a9.io, 0x02Cu, 0u);
+    ds_render(d);
+    T_CHECK_EQ_U(d->fb[0], 0xFF000000u);
+    /* wraparound bit: tex -128 wraps to 0 -> tile 0 again */
+    w16(d->a9.io, 0x00Cu, 0x2100u);
+    ds_render(d);
+    T_CHECK_EQ_U(d->fb[0], EMU_PIXEL(0, 255, 0));
+    ds_free(d);
+}
+
+static void engine_b_registers(void)
+{
+    static const uint32_t arm9[] = { 0xEAFFFFFEu };
+    struct ds *d = ds_boot_prog(arm9, 1, NULL, 0);
+    if (d == NULL) {
+        T_FAIL("boot failed");
+        return;
+    }
+    /* engine B registers live at 0x04001000 (ARM9) */
+    ds9_write32(d, 0x04001000u, 0x0100u); /* DISPCNT B: mode 0, BG0 */
+    ds9_write16(d, 0x04001008u, 0x0000u); /* BG0CNT B: base 0 */
+    T_CHECK_EQ_U(ds9_read32(d, 0x04001000u) & 0xFFFFu, 0x0100u);
+    w16(d->vram_b, 0u, 0x0001u);  /* map (0,0) = tile 1 */
+    d->vram_b[32] = 0x01;         /* tile 1 pixel (0,0) */
+    w16(d->pal, 0x402u, 0x7C1Fu); /* engine B BG palette entry 1 */
+    ds_render(d);
+    T_CHECK_EQ_U(d->fb[192u * 256u], EMU_PIXEL(255, 0, 255));
+    T_CHECK_EQ_U(d->fb[0], 0xFF000000u); /* engine A untouched */
+    ds_free(d);
+}
+
+static void timer_registers_via_bus(void)
+{
+    static const uint32_t arm9[] = { 0xEAFFFFFEu };
+    struct ds *d = ds_boot_prog(arm9, 1, NULL, 0);
+    if (d == NULL) {
+        T_FAIL("boot failed");
+        return;
+    }
+    /* TM0: reload 0xFFFB, enable + IRQ, prescaler 1 -> counter reloads */
+    ds9_write32(d, 0x04000100u, 0x00C0FFFBu);
+    T_CHECK_EQ_U(ds9_read32(d, 0x04000100u), 0x00C0FFFBu);
+    uint64_t irq = 0;
+    ds_tick_timers(&d->a9, d, 3, &irq);
+    T_CHECK_EQ_U(ds9_read16(d, 0x04000100u), 0xFFFEu);
+    T_CHECK_EQ_U(irq, 0);
+    /* reload-halfword write alone must not reload the counter */
+    ds9_write16(d, 0x04000100u, 0xFFF0u);
+    T_CHECK_EQ_U(ds9_read16(d, 0x04000100u), 0xFFFEu);
+    /* control write with the enable bit set reloads immediately */
+    ds9_write16(d, 0x04000102u, 0x00C0u);
+    T_CHECK_EQ_U(ds9_read16(d, 0x04000100u), 0xFFF0u);
+    ds_tick_timers(&d->a9, d, 16, &irq); /* wrap after 16 counts */
+    T_CHECK_EQ_U(irq & DS_IRQ_TM0, DS_IRQ_TM0);
+    T_CHECK_EQ_U(ds9_read16(d, 0x04000100u), 0xFFF0u);
+    /* ARM7 timers are wired the same way */
+    ds7_write32(d, 0x04000100u, 0x00800005u);
+    T_CHECK_EQ_U(ds7_read32(d, 0x04000100u), 0x00800005u);
+    ds_free(d);
+}
+
+static void master_brightness(void)
+{
+    static const uint32_t arm9[] = { 0xEAFFFFFEu };
+    struct ds *d = ds_boot_prog(arm9, 1, NULL, 0);
+    if (d == NULL) {
+        T_FAIL("boot failed");
+        return;
+    }
+    /* BG0 pixel magenta at (0,0); backdrop white */
+    w32(d->a9.io, 0x000u, 0x0100u);
+    w16(d->a9.io, 0x008u, 0x0100u);
+    w16(d->pal, 0u, 0x7FFFu);
+    w16(d->pal, 2u, 0x7C1Fu);
+    d->vram_a[32] = 0x01;
+    w16(d->vram_a, 0x800u, 0x0001u);
+    /* brightness down, factor 21/63: 255 -> 255*42/63 = 170 */
+    w16(d->a9.io, 0x06Cu, 0x4015u);
+    ds_render(d);
+    T_CHECK_EQ_U(d->fb[0], EMU_PIXEL(170, 0, 170));
+    T_CHECK_EQ_U(d->fb[8], EMU_PIXEL(170, 170, 170));
+    /* brightness up on a black screen: 0 -> 255*21/63 = 85 */
+    w32(d->a9.io, 0x000u, 0x0000u);
+    w16(d->pal, 0u, 0x0000u);
+    w16(d->a9.io, 0x06Cu, 0x8015u);
+    ds_render(d);
+    T_CHECK_EQ_U(d->fb[0], EMU_PIXEL(85, 85, 85));
+    ds_free(d);
+}
+
+static void forced_blank(void)
+{
+    static const uint32_t arm9[] = { 0xEAFFFFFEu };
+    struct ds *d = ds_boot_prog(arm9, 1, NULL, 0);
+    if (d == NULL) {
+        T_FAIL("boot failed");
+        return;
+    }
+    /* mode 3 BG3 bitmap with visible data, then force blank */
+    w32(d->a9.io, 0x000u, 0x8803u); /* forced blank */
+    w16(d->a9.io, 0x00Eu, 0x000Cu);
+    w16(d->a9.io, 0x030u, 0x0100u);
+    w16(d->a9.io, 0x036u, 0x0100u);
+    w32(d->a9.io, 0x038u, 0x8000u);
+    w32(d->a9.io, 0x03Cu, 0x8000u);
+    w16(d->vram_a, 0u, 0x7C1Fu);
+    ds_render(d);
+    T_CHECK_EQ_U(d->fb[0], 0xFF000000u);
+    w32(d->a9.io, 0x000u, 0x0803u); /* blank off */
+    ds_render(d);
+    T_CHECK_EQ_U(d->fb[0], EMU_PIXEL(255, 0, 255));
+    ds_free(d);
+}
+
 T_SUITE_BEGIN(ds)
 { "lifecycle_rejects_bad_images", lifecycle_rejects_bad_images },
 { "boot_runs_arm9_marker", boot_runs_arm9_marker },
@@ -505,6 +894,15 @@ T_SUITE_BEGIN(ds)
 { "timer_counts_and_irq", timer_counts_and_irq },
 { "ipc_sync_cross", ipc_sync_cross },
 { "engine_a_mode3_scanout", engine_a_mode3_scanout },
+{ "text_bg_tiles_and_scroll", text_bg_tiles_and_scroll },
+{ "bg_priority_and_backdrop", bg_priority_and_backdrop },
+{ "obj_sprites", obj_sprites },
+{ "obj_rotation_scaling", obj_rotation_scaling },
+{ "affine_bg_transform", affine_bg_transform },
+{ "engine_b_registers", engine_b_registers },
+{ "timer_registers_via_bus", timer_registers_via_bus },
+{ "master_brightness", master_brightness },
+{ "forced_blank", forced_blank },
 { "run_frame_advances_vcount", run_frame_advances_vcount },
 { "keypad_active_low", keypad_active_low },
 { "state_roundtrip_resumes", state_roundtrip_resumes },

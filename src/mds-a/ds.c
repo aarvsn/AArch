@@ -12,6 +12,9 @@
 /* forward declarations (I/O model defined below the bus primitives) */
 static uint32_t a9_io_read32(struct ds *d, uint32_t a);
 static void a9_io_write32(struct ds *d, uint32_t a, uint32_t v);
+static uint16_t a9_io_read16(struct ds *d, uint32_t a);
+static uint8_t a9_io_read8(struct ds *d, uint32_t a);
+static void a9_io_write16(struct ds *d, uint32_t a, uint16_t v);
 static uint32_t a7_io_read32(struct ds *d, uint32_t a);
 static void a7_io_write32(struct ds *d, uint32_t a, uint32_t v);
 
@@ -41,6 +44,11 @@ static uint8_t *a9_mem_ptr(struct ds *d, uint32_t a)
         return &d->vram_f[a - 0x06890000u];
     if (a >= 0x068A0000u && a < 0x068A0000u + DS_VRAM_G_SIZE)
         return &d->vram_g[a - 0x068A0000u];
+    if (a >= 0x06880000u && a < 0x06888000u)
+        return &d->pal[a - 0x06880000u]; /* BG/OBJ palettes (fixed RAM) */
+    if (a >= 0x07000000u && a < 0x07000800u)
+        return (a - 0x07000000u) < 0x400u ? &d->oam_a[a - 0x07000000u]
+                                          : &d->oam_b[a - 0x07000400u];
     if (a >= 0xFFFF0000u)
         return NULL; /* BIOS region: RAM-backed zeros */
     return NULL;
@@ -83,8 +91,8 @@ static uint8_t a9_read8(struct ds *d, uint32_t a)
     uint8_t *p = a9_data_ptr(d, a);
     if (p != NULL)
         return *p;
-    if (a >= 0x04000000u && a < 0x04001000u)
-        return (uint8_t)a9_io_read32(d, a & ~3u);
+    if (a >= 0x04000000u && a < 0x04002000u)
+        return a9_io_read8(d, a);
     return 0; /* BIOS, GBA slot, unmapped: RAM-backed zeros */
 }
 
@@ -93,8 +101,8 @@ static uint16_t a9_read16(struct ds *d, uint32_t a)
     uint8_t *p = a9_data_ptr(d, a);
     if (p != NULL)
         return (uint16_t)(p[0] | (p[1] << 8));
-    if (a >= 0x04000000u && a < 0x04001000u)
-        return (uint16_t)a9_io_read32(d, a & ~3u);
+    if (a >= 0x04000000u && a < 0x04002000u)
+        return a9_io_read16(d, a);
     return 0;
 }
 
@@ -104,7 +112,7 @@ static uint32_t a9_read32(struct ds *d, uint32_t a)
     if (p != NULL)
         return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
                ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
-    if (a >= 0x04000000u && a < 0x04001000u)
+    if (a >= 0x04000000u && a < 0x04002000u)
         return a9_io_read32(d, a);
     return 0;
 }
@@ -126,6 +134,8 @@ static void a9_write16(struct ds *d, uint32_t a, uint16_t v)
         p[1] = (uint8_t)(v >> 8);
         return;
     }
+    if (a >= 0x04000000u && a < 0x04002000u)
+        a9_io_write16(d, a, v);
 }
 
 static void a9_write32(struct ds *d, uint32_t a, uint32_t v)
@@ -138,7 +148,7 @@ static void a9_write32(struct ds *d, uint32_t a, uint32_t v)
         p[3] = (uint8_t)(v >> 24);
         return;
     }
-    if (a >= 0x04000000u && a < 0x04001000u)
+    if (a >= 0x04000000u && a < 0x04002000u)
         a9_io_write32(d, a, v);
 }
 
@@ -257,12 +267,13 @@ static const arm_bus_t arm7_bus_tmpl = {
 
 /* ---- I/O register model --------------------------------------------------------- */
 
-/* Registers handled dynamically; everything else uses the io[] array. */
+/* Registers handled dynamically; everything else uses the io[] array.
+ * Engine A lives at 0x04000000, engine B at 0x04001000 (ARM9 only, storage).
+ * Timer registers (0x04000100 + 4n, both CPUs) are wired to the timer units. */
 #define IO_VCOUNT   0x004u
+#define IO_TM_BASE  0x100u
 #define IO_KEYINPUT 0x130u
 #define IO_IPCSYNC  0x180u
-#define IO_TM0L     0x100u
-#define IO_TM0H     0x102u
 #define IO_IME      0x208u
 #define IO_IE       0x210u
 #define IO_IF       0x214u
@@ -272,29 +283,158 @@ static uint16_t keyinput(struct ds *d)
     return (uint16_t)(~d->buttons & 0xFFFu); /* active-low */
 }
 
+/* timer register slot for a page offset, or NULL outside 0x100..0x11F */
+static struct ds_timer *io_timer(struct ds_cpu *c, uint32_t off)
+{
+    if (off < IO_TM_BASE || off >= IO_TM_BASE + 0x20u || (off & 3u) != 0u)
+        return NULL;
+    return &c->tm[(off - IO_TM_BASE) / 4u];
+}
+
+static uint32_t io_timer_read32(struct ds_cpu *c, uint32_t off)
+{
+    const struct ds_timer *t = io_timer(c, off);
+    return (t->counter & 0xFFFFu) | ((uint32_t)t->cnt << 16);
+}
+
+/* Documented write model: writing the control halfword with the enable bit
+ * set reloads the counter immediately; writing the reload halfword alone
+ * does not. */
+static void io_timer_write32(struct ds_cpu *c, uint32_t off, uint32_t v)
+{
+    struct ds_timer *t = io_timer(c, off);
+    t->reload = (uint16_t)v;
+    t->cnt = (uint8_t)(v >> 16);
+    if (t->cnt & 0x80u) {
+        t->counter = t->reload;
+        t->acc = 0;
+    }
+}
+
+static uint16_t io_read16(struct ds *d, struct ds_cpu *c, uint32_t off)
+{
+    if (off < 0x1000u) {
+        switch (off) {
+        case IO_VCOUNT:
+            return (uint16_t)d->vcount;
+        case IO_KEYINPUT:
+            return keyinput(d);
+        case IO_IPCSYNC:
+            return (uint16_t)(c == &d->a9 ? d->ipc9 : d->ipc7);
+        case IO_IE:
+            return (uint16_t)c->ie;
+        case IO_IF:
+            return (uint16_t)c->if_latch;
+        case IO_IME:
+            return (uint16_t)c->ime;
+        default:
+            if (off >= IO_TM_BASE && off < IO_TM_BASE + 0x20u) {
+                uint32_t tidx = (off - IO_TM_BASE) / 4u;
+                if ((off & 3u) == 0u) {
+                    return (uint16_t)(c->tm[tidx].counter & 0xFFFFu);
+                }
+                if ((off & 3u) == 2u)
+                    return c->tm[tidx].cnt;
+            }
+            break;
+        }
+    }
+    return emu_le16(&c->io[off]);
+}
+
+static uint8_t io_read8(struct ds *d, struct ds_cpu *c, uint32_t off)
+{
+    uint16_t v = io_read16(d, c, off & ~1u);
+    return (uint8_t)((off & 1u) ? (v >> 8) : v);
+}
+
+static void io_write16(struct ds *d, struct ds_cpu *c, uint32_t off,
+                       uint16_t v)
+{
+    if (off < 0x1000u) {
+        switch (off) {
+        case IO_IPCSYNC: {
+            /* documented model: bits 0-3 recv, 8-11 send, bit14 = IRQ
+             * enable. Writing with bit14 set raises the remote IRQ when
+             * the remote side has its own bit14 enable set. */
+            uint32_t cur = c == &d->a9 ? d->ipc9 : d->ipc7;
+            uint32_t *rem = c == &d->a9 ? &d->ipc7 : &d->ipc9;
+            uint32_t send = (v >> 8) & 0xFu;
+            /* own latch: keep the recv nibble (remote-driven), take the
+             * send nibble + IRQ-enable from the write */
+            uint32_t val = (cur & 0xFu) | (v & 0x4F00u);
+            if (c == &d->a9)
+                d->ipc9 = val;
+            else
+                d->ipc7 = val;
+            *rem = (*rem & 0x4F00u) | send;
+            if ((v & 0x4000u) && (*rem & 0x4000u)) {
+                if (c == &d->a9)
+                    d->a7.if_latch |= DS_IRQ_IPC;
+                else
+                    d->a9.if_latch |= DS_IRQ_IPC;
+            }
+            return;
+        }
+        case IO_IE:
+            c->ie = (c->ie & 0xFFFF0000u) | v;
+            return;
+        case IO_IF:
+            c->if_latch &= ~(uint32_t)v;
+            return;
+        case IO_IME:
+            c->ime = v & 1u;
+            return;
+        default:
+            if (off >= IO_TM_BASE && off < IO_TM_BASE + 0x20u) {
+                uint32_t tidx = (off - IO_TM_BASE) / 4u;
+                if ((off & 3u) == 0u) {
+                    c->tm[tidx].reload = v; /* reload halfword: no reload */
+                } else if ((off & 3u) == 2u) {
+                    c->tm[tidx].cnt = (uint8_t)v;
+                    if (v & 0x80u) {
+                        c->tm[tidx].counter = c->tm[tidx].reload;
+                        c->tm[tidx].acc = 0;
+                    }
+                }
+                return;
+            }
+            break;
+        }
+    }
+    emu_store_le16(&c->io[off], v);
+}
+
 static uint32_t a9_io_read32(struct ds *d, uint32_t a)
 {
-    switch (a & 0xFFFu) {
-    case IO_VCOUNT:
-        return d->vcount;
-    case IO_KEYINPUT:
-        return keyinput(d); /* bits 0-11, active-low */
-    case IO_IPCSYNC:
-        return d->ipc9;
-    case IO_IE:
-        return d->a9.ie;
-    case IO_IF:
-        return d->a9.if_latch;
-    case IO_IME:
-        return d->a9.ime;
-    default:
-        return emu_le32(&d->a9.io[a & 0xFFFu]);
+    uint32_t off = a & 0x1FFFu;
+    if (off < 0x1000u) {
+        switch (off) {
+        case IO_VCOUNT:
+            return d->vcount;
+        case IO_KEYINPUT:
+            return keyinput(d); /* bits 0-11, active-low */
+        case IO_IPCSYNC:
+            return d->ipc9;
+        case IO_IE:
+            return d->a9.ie;
+        case IO_IF:
+            return d->a9.if_latch;
+        case IO_IME:
+            return d->a9.ime;
+        default:
+            if (io_timer(&d->a9, off) != NULL)
+                return io_timer_read32(&d->a9, off);
+            break;
+        }
     }
+    return emu_le32(&d->a9.io[off]);
 }
 
 static uint32_t a7_io_read32(struct ds *d, uint32_t a)
 {
-    switch (a & 0xFFFu) {
+    uint32_t off = a & 0xFFFu;
+    switch (off) {
     case IO_VCOUNT:
         return d->vcount;
     case IO_KEYINPUT:
@@ -308,51 +448,65 @@ static uint32_t a7_io_read32(struct ds *d, uint32_t a)
     case IO_IME:
         return d->a7.ime;
     default:
-        return emu_le32(&d->a7.io[a & 0xFFFu]);
+        if (io_timer(&d->a7, off) != NULL)
+            return io_timer_read32(&d->a7, off);
+        return emu_le32(&d->a7.io[off]);
     }
+}
+
+static uint16_t a9_io_read16(struct ds *d, uint32_t a)
+{
+    return io_read16(d, &d->a9, a & 0x1FFFu);
+}
+
+static uint8_t a9_io_read8(struct ds *d, uint32_t a)
+{
+    return io_read8(d, &d->a9, a & 0x1FFFu);
+}
+
+static void a9_io_write16(struct ds *d, uint32_t a, uint16_t v)
+{
+    io_write16(d, &d->a9, a & 0x1FFFu, v);
 }
 
 static void a9_io_write32(struct ds *d, uint32_t a, uint32_t v)
 {
-    switch (a & 0xFFFu) {
-    case IO_IPCSYNC: {
-        /* documented model: bits 0-3 recv, 8-11 send, bit14 = IRQ enable.
-         * Writing with bit14 set raises the remote IRQ when the remote
-         * side has its own bit14 enable set. */
-        d->ipc9 = (v & 0x4F00u) | (d->ipc9 & 0xFu);
-        d->ipc7 = (d->ipc7 & 0x4F00u) | ((v >> 8) & 0xFu);
-        if ((v & 0x4000u) && (d->ipc7 & 0x4000u))
-            d->a7.if_latch |= DS_IRQ_IPC;
-        return;
+    uint32_t off = a & 0x1FFFu;
+    if (off < 0x1000u) {
+        switch (off) {
+        case IO_IPCSYNC:
+            io_write16(d, &d->a9, IO_IPCSYNC, (uint16_t)v);
+            return;
+        case IO_IE:
+            d->a9.ie = v & 0x0007FFFFu;
+            return;
+        case IO_IF:
+            d->a9.if_latch &= ~v;
+            return;
+        case IO_IME:
+            d->a9.ime = v & 1u;
+            return;
+        case IO_VCOUNT:
+            emu_store_le16(&d->a9.io[IO_VCOUNT], (uint16_t)v);
+            return;
+        default:
+            if (io_timer(&d->a9, off) != NULL) {
+                io_timer_write32(&d->a9, off, v);
+                return;
+            }
+            break;
+        }
     }
-    case IO_IE:
-        d->a9.ie = v & 0x0007FFFFu;
-        return;
-    case IO_IF:
-        d->a9.if_latch &= ~v;
-        return;
-    case IO_IME:
-        d->a9.ime = v & 1u;
-        return;
-    case IO_VCOUNT:
-        emu_store_le16(&d->a9.io[IO_VCOUNT], (uint16_t)v);
-        return;
-    default:
-        emu_store_le32(&d->a9.io[a & 0xFFFu], v);
-        return;
-    }
+    emu_store_le32(&d->a9.io[off], v);
 }
 
 static void a7_io_write32(struct ds *d, uint32_t a, uint32_t v)
 {
-    switch (a & 0xFFFu) {
-    case IO_IPCSYNC: {
-        d->ipc7 = (v & 0x4F00u) | (d->ipc7 & 0xFu);
-        d->ipc9 = (d->ipc9 & 0x4F00u) | ((v >> 8) & 0xFu);
-        if ((v & 0x4000u) && (d->ipc9 & 0x4000u))
-            d->a9.if_latch |= DS_IRQ_IPC;
+    uint32_t off = a & 0xFFFu;
+    switch (off) {
+    case IO_IPCSYNC:
+        io_write16(d, &d->a7, IO_IPCSYNC, (uint16_t)v);
         return;
-    }
     case IO_IE:
         d->a7.ie = v & 0x0007FFFFu;
         return;
@@ -366,7 +520,11 @@ static void a7_io_write32(struct ds *d, uint32_t a, uint32_t v)
         emu_store_le16(&d->a7.io[IO_VCOUNT], (uint16_t)v);
         return;
     default:
-        emu_store_le32(&d->a7.io[a & 0xFFFu], v);
+        if (io_timer(&d->a7, off) != NULL) {
+            io_timer_write32(&d->a7, off, v);
+            return;
+        }
+        emu_store_le32(&d->a7.io[off], v);
         return;
     }
 }
@@ -507,44 +665,14 @@ static void ds_update_irq(struct ds *d)
         arm_irq(&d->a7.cpu);
 }
 
-/* ---- video scanout (BG bitmap modes 3/5, both engines) ---------------------------- */
-
-static uint32_t bgr555_to_px(uint16_t c)
-{
-    uint32_t r = (uint32_t)(c & 31u), g = (uint32_t)((c >> 5) & 31u),
-             b = (uint32_t)((c >> 10) & 31u);
-    return EMU_PIXEL((r << 3) | (r >> 2), (g << 3) | (g >> 2),
-                     (b << 3) | (b >> 2));
-}
-
-static void render_engine(struct ds *d, uint32_t io_base, uint8_t *vram,
-                          uint32_t fb_row)
-{
-    uint32_t disp = emu_le32(&d->a9.io[io_base]);
-    uint32_t mode = disp & DS_DISP_MODE;
-    if (mode != 3u && mode != 5u)
-        return; /* text/affine: black (documented stub) */
-    if (!(disp & DS_DISP_BG2_ENABLE))
-        return;
-    uint32_t base = 0;
-    if (mode == 5u)
-        base = ((disp >> 4) & 1u) * 0xA000u;
-    for (uint32_t y = 0; y < DS_SCREEN_H; y++) {
-        const uint8_t *row = vram + base + y * DS_SCREEN_W * 2u;
-        uint32_t *out = &d->fb[(fb_row + y) * DS_SCREEN_W];
-        for (uint32_t x = 0; x < DS_SCREEN_W; x++) {
-            uint16_t c = (uint16_t)(row[x * 2u] | (row[x * 2u + 1u] << 8));
-            out[x] = bgr555_to_px(c);
-        }
-    }
-}
+/* ---- video (full 2D composition, see ds2d.c) --------------------------------------- */
 
 void ds_render(struct ds *d)
 {
     for (size_t i = 0; i < sizeof d->fb / sizeof d->fb[0]; i++)
-        d->fb[i] = 0xFF000000u; /* opaque black */
-    render_engine(d, 0x000u, d->vram_a, 0u);   /* engine A: top screen */
-    render_engine(d, 0x100u, d->vram_b, 192u); /* engine B: bottom screen */
+        d->fb[i] = 0xFF000000u; /* opaque black (blank/disabled engines) */
+    ds2d_render_engine(d, 0, &d->fb[0]);              /* A: top screen    */
+    ds2d_render_engine(d, 1, &d->fb[192u * DS_SCREEN_W]); /* B: bottom    */
 }
 
 /* ---- per-frame run ---------------------------------------------------------------- */
@@ -752,7 +880,8 @@ static void ds_set_audio(emu_core_t *core, emu_audio_cb_t cb, void *user)
 
 static void ds_serialize(struct ds *d, emu_state_writer *w)
 {
-    sw_u32(w, 0x4D445341u); /* "ADSM" */
+    sw_u32(w, 0x4D533241u); /* "A2SM" - state format rev 2 (palette/OAM,
+                             * 2K io pages, engine-B registers) */
     /* ARM9 CPU */
     for (int i = 0; i < 16; i++)
         sw_u32(w, d->a9.cpu.r[i]);
@@ -816,6 +945,9 @@ static void ds_serialize(struct ds *d, emu_state_writer *w)
     sw_mem(w, d->vram_e, sizeof d->vram_e);
     sw_mem(w, d->vram_f, sizeof d->vram_f);
     sw_mem(w, d->vram_g, sizeof d->vram_g);
+    sw_mem(w, d->pal, sizeof d->pal);
+    sw_mem(w, d->oam_a, sizeof d->oam_a);
+    sw_mem(w, d->oam_b, sizeof d->oam_b);
 }
 
 static size_t ds_state_size(emu_core_t *core)
@@ -841,7 +973,7 @@ static emu_result_t ds_load_state(emu_core_t *core, const uint8_t *buf,
 {
     struct ds *d = (struct ds *)core;
     emu_state_reader rd = { buf, size, 0, 0 };
-    if (sr_u32(&rd) != 0x4D445341u)
+    if (sr_u32(&rd) != 0x4D533241u)
         return EMU_EBADSTATE;
     for (int i = 0; i < 16; i++)
         d->a9.cpu.r[i] = sr_u32(&rd);
@@ -903,6 +1035,9 @@ static emu_result_t ds_load_state(emu_core_t *core, const uint8_t *buf,
     sr_mem(&rd, d->vram_e, sizeof d->vram_e);
     sr_mem(&rd, d->vram_f, sizeof d->vram_f);
     sr_mem(&rd, d->vram_g, sizeof d->vram_g);
+    sr_mem(&rd, d->pal, sizeof d->pal);
+    sr_mem(&rd, d->oam_a, sizeof d->oam_a);
+    sr_mem(&rd, d->oam_b, sizeof d->oam_b);
     if (rd.bad)
         return EMU_EBADSTATE;
     return EMU_OK;
@@ -963,6 +1098,16 @@ uint32_t ds9_read32(struct ds *d, uint32_t addr)
 void ds9_write32(struct ds *d, uint32_t addr, uint32_t v)
 {
     a9_write32(d, addr, v);
+}
+
+uint16_t ds9_read16(struct ds *d, uint32_t addr)
+{
+    return a9_read16(d, addr);
+}
+
+void ds9_write16(struct ds *d, uint32_t addr, uint16_t v)
+{
+    a9_write16(d, addr, v);
 }
 
 uint32_t ds7_read32(struct ds *d, uint32_t addr)

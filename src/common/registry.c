@@ -154,8 +154,9 @@ static const emu_core_info_t registry[] = {
       ref_psx },
     { "mds-a", EMU_STATUS_PARTIAL,
       "Nintendo DS: ARM946E-S + ARM7TDMI (ARM+Thumb), direct-boot from "
-      ".nds header, timers, IPC, IRQ, BG bitmap modes 3/5 scanout; no 3D, "
-      "sprites, sound, touch or card bus",
+      ".nds header, timers, IPC, IRQ, full 2D compositing per engine "
+      "(text/affine/extended BGs, OBJs, priorities, master brightness); "
+      "no 3D, blending/windows, sound, touch or card bus",
       ref_ds },
     { "ms-32", EMU_STATUS_PARTIAL,
       "Sega 32X: SH-2 x2 + adapter + COMM + VDP packed-pixel over finalburn; "

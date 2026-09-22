@@ -217,7 +217,7 @@ void gba_apu_step(gba_t *g, uint32_t cycles)
 
         /* FIFO A (soundcnt_h bits: 2=volume, 8=en R, 9=en L) */
         {
-            int sa = a->fifo_has[0] ? (a->fifo_cur[0] << 8) : 0;
+            int sa = a->fifo_has[0] ? ((int)a->fifo_cur[0] * 256) : 0;
             if (!(a->soundcnt_h & 0x0004u))
                 sa >>= 1; /* 50% volume */
             if (a->soundcnt_h & 0x0100u)
@@ -227,7 +227,7 @@ void gba_apu_step(gba_t *g, uint32_t cycles)
         }
         /* FIFO B (bits: 3=volume, 12=en R, 13=en L) */
         {
-            int sb = a->fifo_has[1] ? (a->fifo_cur[1] << 8) : 0;
+            int sb = a->fifo_has[1] ? ((int)a->fifo_cur[1] * 256) : 0;
             if (!(a->soundcnt_h & 0x0008u))
                 sb >>= 1;
             if (a->soundcnt_h & 0x1000u)

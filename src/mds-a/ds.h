@@ -25,16 +25,24 @@
  *    1/64/256/1024, cascade, IRQ enable.
  *  - IPC: IPCSYNC (0x04000180) send/recv nibbles cross between CPUs and
  *    can raise the remote IRQ when enabled.
- *  - Video: both 2D engines, BG extended-bitmap modes 3 and 5 (16-bit
- *    BGR555) scanned out of VRAM A (engine A, 0x06000000) / B (engine B,
- *    0x06200000); mode 5 uses the DISPCNT page bit with a 0xA000 stride.
+ *  - Video: both 2D engines with full per-engine composition (see
+ *    ds2d.{c,h}): text BGs (4/8bpp tiles, sizes, flips, scrolls), affine BGs
+ *    (rot/scale transform, wrap), extended-affine BGs (7 formats incl. the
+ *    16bpp bitmaps behind the classic "mode 3/5" scanout), OBJ sprites
+ *    (1D/2D tile mapping, h/v flips, 4/8bpp, rotation/scaling with the 32
+ *    OAM parameter sets, priorities), priority compositing against the
+ *    backdrop color, and master brightness. Engine A registers at
+ *    0x04000000, engine B at 0x04001000 (ARM9 only, as on hardware).
  *    Engine A renders to the top screen (rows 0-191 of the 256x384
- *    framebuffer), engine B to the bottom (rows 192-383). Text/affine
- *    modes render black (2D compositing is a documented stub).
+ *    framebuffer), engine B to the bottom (rows 192-383). Engine A mode 5
+ *    page bit uses a 0xA000 bitmap stride (core convention, documented;
+ *    it follows the prior scanout model, not a hardware-derived value).
  *  - Input: KEYINPUT at 0x04000130 (active-low): A=0 B=1 Select=2
  *    Start=3 Right=4 Left=5 Up=6 Down=7 R=8 L=9 X=10 Y=11; touch is not
  *    modeled.
- *  - Not implemented (honest gaps): 3D engine, sprite compositing, sound
+ *  - Not implemented (honest gaps): 3D engine, alpha/color-fade blending,
+ *    windows (OBJ-window sprites are skipped), VRAM banking (VRAMCNT
+ *    writes ignored, linear placement), engine A modes 6/7, mosaic, sound
  *    (0x04000400 stub), card bus (registers stub; the boot copies are
  *    done by the loader), Wi-Fi, touch, firmware settings, cache
  *    modeling (CP15 c1/c3/c7/c10 accepted and stored).
@@ -96,9 +104,15 @@
 #define DS_IRQ_IPC    0x00010000u
 
 /* DISPCNT bits used */
-#define DS_DISP_MODE      0x0007u
-#define DS_DISP_PAGE      0x0010u
-#define DS_DISP_BG2_ENABLE 0x0400u
+#define DS_DISP_MODE        0x0007u
+#define DS_DISP_PAGE        0x0010u
+#define DS_DISP_BG0_ENABLE  0x0100u
+#define DS_DISP_BG1_ENABLE  0x0200u
+#define DS_DISP_BG2_ENABLE  0x0400u
+#define DS_DISP_BG3_ENABLE  0x0800u
+#define DS_DISP_OBJ_ENABLE  0x1000u
+#define DS_DISP_OBJ_1D      0x2000u
+#define DS_DISP_FORCED_BLANK 0x8000u
 
 struct ds_timer {
     uint16_t reload;
@@ -110,7 +124,9 @@ struct ds_timer {
 
 struct ds_cpu {
     arm_t cpu;
-    uint8_t io[0x1000];      /* own 0x04000000 page */
+    uint8_t io[0x2000];      /* 0x04000000 page; ARM9 also hosts 0x04001000
+                              * (engine B). ARM7 uses only the first 4 KiB
+                              * (as on hardware). */
     struct ds_timer tm[4];
     uint32_t ie, if_latch, ime;
     uint64_t cycle_accum;    /* sub-frame remainder */
@@ -135,6 +151,14 @@ struct ds {
     uint8_t vram_f[DS_VRAM_F_SIZE];
     uint8_t vram_g[DS_VRAM_G_SIZE];
 
+    /* Palette memory at 0x06880000 (fixed RAM, not bank-mapped):
+     * engine A BG +0x000, engine A OBJ +0x200, engine B BG +0x400,
+     * engine B OBJ +0x600 (512 bytes each). */
+    uint8_t pal[0x800u];
+    /* OAM: engine A at 0x07000000, engine B at 0x07000400, 1 KiB each. */
+    uint8_t oam_a[0x400u];
+    uint8_t oam_b[0x400u];
+
     uint8_t *rom;
     size_t rom_size;
 
@@ -155,6 +179,8 @@ struct ds {
 /* Test/inspection hooks (not part of the public API). */
 uint32_t ds9_read32(struct ds *d, uint32_t addr);
 void ds9_write32(struct ds *d, uint32_t addr, uint32_t v);
+uint16_t ds9_read16(struct ds *d, uint32_t addr);
+void ds9_write16(struct ds *d, uint32_t addr, uint16_t v);
 uint32_t ds7_read32(struct ds *d, uint32_t addr);
 void ds7_write32(struct ds *d, uint32_t addr, uint32_t v);
 void ds9_step(struct ds *d); /* one ARM9 instruction */
@@ -162,5 +188,8 @@ void ds7_step(struct ds *d); /* one ARM7 instruction */
 void ds_render(struct ds *d);
 void ds_tick_timers(struct ds_cpu *c, struct ds *d, uint32_t cycles,
                     uint64_t *irq_out);
+
+/* 2D engines (ds2d.c): renders one engine into the framebuffer row block. */
+void ds2d_render_engine(struct ds *d, unsigned engine, uint32_t *out);
 
 #endif /* EMU_MDS_A_DS_H */

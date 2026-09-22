@@ -591,8 +591,9 @@ static uint32_t arm_step(gba_t *g, gba_cpu *c, uint32_t instr)
 
     /* branch / branch with link */
     if ((instr & 0x0E000000u) == 0x0A000000u) {
-        int32_t off = (int32_t)(instr & 0x00FFFFFFu);
-        off = (off << 8) >> 8; /* sign extend */
+        /* sign-extend the 24-bit offset: shift left as unsigned (no UB),
+         * then arithmetic shift right */
+        int32_t off = (int32_t)((instr & 0x00FFFFFFu) << 8) >> 8;
         int link = (instr & (1u << 24)) != 0;
         if (link)
             c->r[14] = c->r[15]; /* LR = instruction address + 4 */
@@ -975,8 +976,7 @@ static uint32_t thumb_step(gba_t *g, gba_cpu *c, uint16_t instr)
     /* unconditional branch: 11100. Target = instruction address + 4 + off*2
      * (r15 is instruction address + 2 inside thumb_step). */
     if ((instr & 0xF800u) == 0xE000u) {
-        int32_t off = (int32_t)(instr & 0x7FFu);
-        off = (off << 21) >> 21;
+        int32_t off = (int32_t)((instr & 0x7FFu) << 21) >> 21;
         c->r[15] = c->r[15] + 2u + ((uint32_t)off << 1u);
         return 3;
     }
@@ -985,8 +985,7 @@ static uint32_t thumb_step(gba_t *g, gba_cpu *c, uint16_t instr)
      * (LSB 1). r15 must stay on the SECOND halfword: it already points
      * there (pre-advanced fetch), so no advance here. */
     if ((instr & 0xF800u) == 0xF000u) {
-        int32_t off = (int32_t)(instr & 0x7FFu);
-        off = (off << 21) >> 21;
+        int32_t off = (int32_t)((instr & 0x7FFu) << 21) >> 21;
         c->r[14] = (c->r[15] + 2u + ((uint32_t)off << 12u)) | 1u;
         return 3;
     }
@@ -994,8 +993,7 @@ static uint32_t thumb_step(gba_t *g, gba_cpu *c, uint16_t instr)
     /* BL second halfword: 11111. LR = instruction address of the pair + 4
      * (r15 already points there), LSB 1. */
     if ((instr & 0xF800u) == 0xF800u) {
-        int32_t off = (int32_t)(instr & 0x7FFu);
-        off = (off << 21) >> 21;
+        int32_t off = (int32_t)((instr & 0x7FFu) << 21) >> 21;
         uint32_t target = c->r[14] + ((uint32_t)off << 1u);
         c->r[14] = c->r[15] | 1u;
         c->r[15] = target & ~1u;

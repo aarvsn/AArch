@@ -6,6 +6,10 @@ db/
 .env
 tool-results/
 
+# sandbox artifact: real CI is parked at ci/github-ci.yml until the deploy
+# token gains the workflow scope; never track .github/workflows by accident
+.github/
+
 # build directories
 build*/
 cmake-build-*/

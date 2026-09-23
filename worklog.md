@@ -775,3 +775,31 @@ Stage Summary:
   DS; alpha blending + windows for the DS 2D engines (BLDCNT/BLDALPHA/
   WININ/WINOUT are already in the io page, just unmodeled); GBA-style
   save-state fuzzing for the new 2D paths.
+
+---
+Task ID: 9
+Agent: Super Z (lead engineer)
+Task: post-session-8 verification and hygiene after context reset
+
+Work Log:
+- Context was reset mid-conversation; verified session 8 state from git and
+  worklog instead of re-deriving it: commits c179f70 (ds2d) and bf3ec04
+  (worklog) present locally, remote main matched bf3ec04 (nothing pending).
+- Normalized 70 sandbox mode-noise files (chmod from git ls-tree -r HEAD).
+- Deleted sandbox-restored .github/workflows/ci.yml (token has no workflow
+  scope; real CI stays at ci/github-ci.yml) and 8 untracked scripts/dbg_*.c
+  scratch files (verified zero build references first).
+- .gitignore: added .github/ with a comment explaining the CI parking spot,
+  so a future `git add -A` cannot pick the workflow file up.
+- Full regression from scratch: Release rebuild zero warnings, 419 tests /
+  0 failed assertions, --list shows 11 cores with the updated mds-a note.
+- Pushed d9c15ef with the one-shot token URL; token not in .git/config.
+- Note: GitHub reports the canonical URL is now github.com/aarvsn/AArch
+  (case change, redirects fine; one-shot push URLs unaffected).
+
+Stage Summary:
+- Repo state after session 8 + this cleanup: 5 working / 6 partial, 419
+  tests, zero warnings, working tree clean, remote main == local HEAD.
+- Same suggested next steps as session 8: DC Tile Accelerator + AICA ARM7;
+  DS card-bus DMA; DS alpha blending + windows (BLDCNT/WININ/WINOUT);
+  GBA-style save-state fuzzing for the new 2D paths.

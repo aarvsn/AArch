@@ -875,3 +875,45 @@ Stage Summary:
   linear) + per-tile depth grouping; AICA ADPCM + the AEG envelope;
   DS card-bus DMA; DS alpha blending + windows (BLDCNT/WININ/WINOUT are
   already in the io page); store-queue FIFO path for the TA.
+
+---
+Task ID: 10 (push reconciliation + history repair)
+Agent: Super Z (lead engineer)
+Task: Push sessions 9-10 to GitHub; verify and repair local history first
+
+Work Log:
+- Found that a post-session `commit --amend` had folded sandbox noise
+  into the local Task 9 worklog commit (48951f2 -> bd1389a): it
+  re-tracked .env, reverted the .gitignore protections, and flipped 63
+  files to mode 755. Verified against the original 48951f2 that the
+  noise carried zero legitimate content (worklog.md byte-identical, all
+  other diffs mode-only except .env/.gitignore). This existed only
+  locally and was never pushed.
+- Repaired the local history (nothing unpushed was published, so no
+  force-push was involved): reset to d9c15ef, normalized all modes back
+  to 100644, re-created the Task 9 worklog commit and the Task 10
+  commit (same message/content minus .env and the mode noise). .env is
+  untracked again and covered by .gitignore; working tree clean.
+- Restored the sandbox-wiped toolchain (cmake 4.4.3 via pip) and
+  re-verified on the repaired tree: from-scratch Release build with
+  0 warnings, 437 tests / 0 failed assertions, --list note correct
+  (supercastpro: PVR2 scanout + TA subset + AICA ARM7/PCM voices).
+- Push reconciliation with a fresh repo-scoped token: token-checked
+  ls-remote showed remote main at 48951f2 - session 9's push HAD
+  landed; the local origin/main tracking ref was simply never updated
+  by that one-shot-URL push (stale bookkeeping, not a lost push; the
+  earlier tracking-reflog inference "remote = bf3ec04" was wrong).
+  Reset local onto 48951f2, cherry-picked the Task 10 commit (2c9122b,
+  tree byte-identical to the rebuilt b923038), also normalizing the
+  worklog.md mode (755 -> 644) that had slipped into the original
+  48951f2, then re-applied this entry with corrected facts.
+
+Stage Summary:
+- Pushed with the one-shot token URL (token used only in throwaway
+  URLs, never written to .git/config; x-oauth-scopes: repo only).
+  Remote main == local HEAD; published history: 48951f2 + 2c9122b
+  (supercastpro TA subset + AICA ARM7/PCM voices, 437 tests) + this
+  worklog entry.
+- supercastpro keeps registry status "partial" but now covers the two
+  biggest homebrew unlocks: flat-shaded 3D submission through the TA
+  parameter stream and ARM7 sound drivers on AICA.

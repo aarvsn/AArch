@@ -172,8 +172,9 @@ static const emu_core_info_t registry[] = {
       ref_n64 },
     { "supercastpro", EMU_STATUS_PARTIAL,
       "Dreamcast: SH-4 (integer + SP FPU subset), TMU, direct-boot from "
-      "IP.BIN, PVR2 display-controller scanout; no Tile Accelerator, "
-      "AICA sound, GD-ROM or Maple",
+      "IP.BIN, PVR2 scanout + Tile Accelerator subset (flat-shaded "
+      "strips/sprites), AICA ARM7 + PCM16/8 voices; no TA textures, "
+      "alpha, ADPCM/DSP, GD-ROM or Maple",
       ref_dc },
 };
 

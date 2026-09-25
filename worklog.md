@@ -803,3 +803,75 @@ Stage Summary:
 - Same suggested next steps as session 8: DC Tile Accelerator + AICA ARM7;
   DS card-bus DMA; DS alpha blending + windows (BLDCNT/WININ/WINOUT);
   GBA-style save-state fuzzing for the new 2D paths.
+
+---
+Task ID: 10
+Agent: Super Z (lead engineer)
+Task: supercastpro Dreamcast - Tile Accelerator subset + AICA (ARM7 + PCM voices)
+
+Work Log:
+- Wrote src/supercastpro/ta.c (~300 lines): TA parameter FIFO (32-bit
+  writes to 0x10000000-0x11FFFFFF, 64K words, sticky overflow), STARTRENDER
+  (PVR 0x034) triggers a synchronous parse-and-rasterize pass into the VRAM
+  framebuffer (FB_W_CTRL pack 0/1 = RGB565, 3 = RGB888, 4 = ARGB8888;
+  FB_W_LINESTRIDE in 32-bit words; the target always covers the full
+  640x480 tile space). Documented parameter subset: control words
+  0x80/0x81/0x82/0x87 skipped, 0x83 ends, polygon headers 0x88-0x8C /
+  0x90-0x94 / 0x98-0x9C with the real word counts (3/4/4/5/5, +1 for
+  transparent/punch), sprites 0x8D/0x95/0x9D (3/4/4); vertices = tag word
+  0xE0-0xEF + X/Y/Z floats + ARGB color, strips end at the next non-vertex
+  word (real termination semantics). Screen mapping sx = x + 320,
+  sy = 240 - y; painter's-order rasterizer (stream order, documented
+  contract: lists submitted opaque -> punch -> transparent), strips
+  triangulated, sprites axis-aligned A/B/C rects with the pixel-center
+  half-open rule; flat color from the first vertex.
+- Wrote src/supercastpro/aica.c (~270 lines): ARM7TDMI (shared interpreter,
+  v4T) at 33.8688 MHz running from wave RAM (ARM7 map 0x00000000, local
+  registers at 0x00800000); SH-4 side registers at 0x00700000-0x00707FFF.
+  64 raw channel register blocks decoded live: SA (fmt bits 14:11, addr
+  hi/lo), LSA/LEA (byte addresses, LEA exclusive), CA readback = pos>>16,
+  pitch octave+FSC (rate = 44100 * 2^oct * (1 + FSC/1024)), loop/KYONB at
+  +0x30, volume 0 = 0 dB (linear attenuation documented) and pan at
+  +0x38/+0x3C. KYONEX (0x2800 bit 14) latches all KYONBs (key-on resets
+  the phase); MCIPD (0x2898 bit 14) pulses the ARM7 IRQ line; MCIRE
+  (0x289C bit 9) is the ARM7 -> SH-4 flag doorbell. Mixer: 44100 Hz
+  stereo saturated sum, nearest sample, byte-domain position advancing
+  bytes-per-sample * rate/44100; one-shot stops at LEA, loops wrap to LSA.
+  PCM16 LE + PCM8 unsigned; ADPCM decoded as silence (pending).
+- dc.c: AICA/TA windows in the bus (8-bit AICA access merges into the
+  containing 16-bit register; TA FIFO write-only), dc_step = SH-4 + one
+  ARM7 instruction (test coupling), run_frame adds the ARM7 budget
+  (33.8688 MHz/60) and a 735-frame audio callback push, save state bumped
+  to format rev 2 (0x44434232): + TA FIFO, ARM7 state, channel registers
+  and live voice state; wave RAM member renamed aica_ram (name collision
+  with the new subsystem struct).
+- Tests: 419 -> 437 (dc_ta 9 + dc_aica 9). Each expectation derived from
+  the dc.h documented model (hand-built parameter streams, hand-assembled
+  ARM7 programs, exact integer gain math). Renderer/mixer bugs the tests
+  caught (each reproduced failing first): TA dispatch used the wrong
+  ParaType bit masks (opaque low nibble is 8-C, not 0-4) and the vertex
+  tag mask read the low byte instead of the top byte (0xE0000000);
+  sprite rects needed min/max normalization and the pixel-center rule;
+  the write target must not depend on FB_R_SIZE.
+- Shared-core bug found by the AICA IRQ test: common/arm.c MSR (register
+  and immediate) passed the raw fsxc nibble << 16 to msr_write, which
+  interpreted it as a full CPSR bit mask - every ARM-mode MSR write was a
+  silent no-op (and SPSR writes hit bits 16-19). Fixed by expanding the
+  fsxc nibble to byte masks inside msr_write. mgbax was unaffected (its
+  core has its own interpreter); no prior test exercised common MSR.
+- Known remaining gaps (documented in dc.h): Thumb MSR/MRS in common/arm.c
+  (ARM-mode MSR works; the Thumb PSR-transfer format is not decoded yet),
+  TA textures/UVs, modifier volumes, user tile clip, per-tile depth sort,
+  Gouraud/alpha; AICA ADPCM/AEG/LFO/DSP; GD-ROM, G2 DMA, Maple.
+- Sandbox reset mid-session (cmake wiped twice). Full regression:
+  Release rebuild 0 warnings, 437 tests / 0 failed assertions, ASan+UBSan
+  build also 0 warnings and fully green; --list note updated.
+
+Stage Summary:
+- supercastpro keeps registry status "partial" but now covers the two
+  biggest homebrew unlocks: flat-shaded 3D submission through the TA
+  parameter stream and ARM7 sound drivers on AICA.
+- Suggested next steps: TA textures (RGB565/ARGB4444, twiddled and
+  linear) + per-tile depth grouping; AICA ADPCM + the AEG envelope;
+  DS card-bus DMA; DS alpha blending + windows (BLDCNT/WININ/WINOUT are
+  already in the io page); store-queue FIFO path for the TA.

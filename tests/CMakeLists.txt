@@ -118,7 +118,7 @@ if(EMU_BUILD_M64_B)
 endif()
 
 if(EMU_BUILD_SUPERCASTPRO)
-    list(APPEND EMU_TEST_SOURCES dc/dc.c)
+    list(APPEND EMU_TEST_SOURCES dc/dc.c dc/ta.c dc/aica.c)
     list(APPEND EMU_TEST_CORE_DEFS EMU_BUILD_SUPERCASTPRO=1)
     list(APPEND EMU_TEST_CORE_LIBS core_supercastpro)
 endif()

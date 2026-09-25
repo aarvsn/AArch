@@ -245,6 +245,21 @@ static uint8_t rd8(arm_t *c, uint32_t a)
 
 static void msr_write(arm_t *c, uint32_t val, uint32_t mask, int spsr)
 {
+    /* mask arrives as the fsxc field nibble shifted left 16 (bits 19-16
+     * of the instruction). Expand it to full CPSR/SPSR byte masks:
+     * c = control byte, x = extension byte, s = status byte,
+     * f = flags byte. */
+    uint32_t expand = 0;
+    if (mask & 0x00010000u)
+        expand |= 0x000000FFu;
+    if (mask & 0x00020000u)
+        expand |= 0x0000FF00u;
+    if (mask & 0x00040000u)
+        expand |= 0x00FF0000u;
+    if (mask & 0x00080000u)
+        expand |= 0xFF000000u;
+    mask = expand;
+
     uint32_t *target;
     if (spsr) {
         target = spsr_ptr(c);

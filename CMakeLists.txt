@@ -201,7 +201,8 @@ if(EMU_BUILD_M64_B)
     target_include_directories(core_m64_b PRIVATE src)
 endif()
 if(EMU_BUILD_SUPERCASTPRO)
-    emu_add_core(supercastpro supercastpro src/supercastpro/dc.c)
+    emu_add_core(supercastpro supercastpro src/supercastpro/dc.c
+        src/supercastpro/ta.c src/supercastpro/aica.c)
 endif()
 
 # ---- CLI ----------------------------------------------------------------------

@@ -54,7 +54,7 @@ static uint8_t *dc_ptr(struct dc *d, uint32_t pa)
     if (pa >= DC_PHYS_FLASH && pa < DC_PHYS_FLASH + DC_FLASH_SIZE)
         return &d->flash[pa - DC_PHYS_FLASH];
     if (pa >= DC_PHYS_AICA && pa < DC_PHYS_AICA + DC_AICA_SIZE)
-        return &d->aica[pa - DC_PHYS_AICA];
+        return &d->aica_ram[pa - DC_PHYS_AICA];
     if (pa >= DC_PHYS_VRAM && pa < DC_PHYS_VRAM + DC_VRAM_SIZE)
         return &d->vram[pa - DC_PHYS_VRAM];
     if (pa >= DC_PHYS_RAM && pa < DC_PHYS_RAM + DC_RAM_SIZE)
@@ -129,6 +129,10 @@ static uint32_t dc_bus_read32(struct dc *d, uint32_t a)
         return 0; /* SCIF stub: no data */
     if (pa >= DC_PVR_BASE && pa < DC_PVR_BASE + DC_PVR_SIZE)
         return dc_pvr_read(d, pa - DC_PVR_BASE);
+    if (pa >= DC_AICA_REG_BASE && pa < DC_AICA_REG_BASE + DC_AICA_REG_SIZE)
+        return dc_aica_reg_read(d, pa - DC_AICA_REG_BASE);
+    if (pa >= DC_TA_BASE && pa < DC_TA_BASE + DC_TA_WINDOW)
+        return 0; /* TA FIFO is write-only (documented) */
     uint8_t *p = dc_ptr(d, pa);
     if (p != NULL)
         return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
@@ -153,7 +157,18 @@ static void dc_bus_write32(struct dc *d, uint32_t a, uint32_t v)
     if (pa >= DC_SCIF_BASE && pa < DC_SCIF_BASE + 0x100u)
         return; /* SCIF stub */
     if (pa >= DC_PVR_BASE && pa < DC_PVR_BASE + DC_PVR_SIZE) {
-        emu_store_le32(&d->pvr_regs[pa - DC_PVR_BASE], v);
+        uint32_t off = pa - DC_PVR_BASE;
+        emu_store_le32(&d->pvr_regs[off], v);
+        if (off == DC_PVR_STARTRENDER && (v & 1u))
+            dc_ta_render(d); /* synchronous TA pass (documented) */
+        return;
+    }
+    if (pa >= DC_AICA_REG_BASE && pa < DC_AICA_REG_BASE + DC_AICA_REG_SIZE) {
+        dc_aica_reg_write(d, pa - DC_AICA_REG_BASE, v);
+        return;
+    }
+    if (pa >= DC_TA_BASE && pa < DC_TA_BASE + DC_TA_WINDOW) {
+        dc_ta_push(d, v); /* one parameter word per 32-bit write */
         return;
     }
     uint8_t *p = dc_ptr(d, pa);
@@ -173,6 +188,8 @@ static uint16_t dc_bus_read16(struct dc *d, uint32_t a)
         return 0;
     if (pa >= DC_PVR_BASE && pa < DC_PVR_BASE + DC_PVR_SIZE)
         return (uint16_t)dc_pvr_read(d, pa - DC_PVR_BASE);
+    if (pa >= DC_AICA_REG_BASE && pa < DC_AICA_REG_BASE + DC_AICA_REG_SIZE)
+        return (uint16_t)dc_aica_reg_read(d, pa - DC_AICA_REG_BASE);
     uint8_t *p = dc_ptr(d, pa & ~1u);
     if (p != NULL)
         return (uint16_t)(p[0] | (p[1] << 8));
@@ -185,6 +202,10 @@ static void dc_bus_write16(struct dc *d, uint32_t a, uint16_t v)
     uint32_t pa = dc_phys(d, a, &mapped);
     if (!mapped)
         return;
+    if (pa >= DC_AICA_REG_BASE && pa < DC_AICA_REG_BASE + DC_AICA_REG_SIZE) {
+        dc_aica_reg_write(d, pa - DC_AICA_REG_BASE, v);
+        return;
+    }
     uint8_t *p = dc_ptr(d, pa & ~1u);
     if (p != NULL) {
         p[0] = (uint8_t)v;
@@ -198,6 +219,8 @@ static uint8_t dc_bus_read8(struct dc *d, uint32_t a)
     uint32_t pa = dc_phys(d, a, &mapped);
     if (!mapped)
         return 0;
+    if (pa >= DC_AICA_REG_BASE && pa < DC_AICA_REG_BASE + DC_AICA_REG_SIZE)
+        return (uint8_t)dc_aica_reg_read(d, pa - DC_AICA_REG_BASE);
     uint8_t *p = dc_ptr(d, pa);
     return p != NULL ? *p : 0;
 }
@@ -208,6 +231,16 @@ static void dc_bus_write8(struct dc *d, uint32_t a, uint8_t v)
     uint32_t pa = dc_phys(d, a, &mapped);
     if (!mapped)
         return;
+    if (pa >= DC_AICA_REG_BASE && pa < DC_AICA_REG_BASE + DC_AICA_REG_SIZE) {
+        /* 8-bit access merges into the containing 16-bit register
+         * (G2 lane swapping not modeled, documented). */
+        uint32_t off = pa - DC_AICA_REG_BASE;
+        uint32_t cur = dc_aica_reg_read(d, off & ~1u);
+        uint32_t merged = (off & 1u) ? ((cur & 0x00FFu) | ((uint32_t)v << 8))
+                                     : ((cur & 0xFF00u) | v);
+        dc_aica_reg_write(d, off & ~1u, merged);
+        return;
+    }
     uint8_t *p = dc_ptr(d, pa);
     if (p != NULL)
         *p = v;
@@ -331,6 +364,7 @@ void dc_step(struct dc *d)
     uint32_t cyc = sh4_step(&d->cpu);
     dc_tick_tmu(d, cyc);
     dc_deliver_tuni(d);
+    dc_aica_arm_step(d, 1u); /* test coupling: one ARM7 instruction */
 }
 
 static emu_result_t dc_run_frame(emu_core_t *core)
@@ -348,6 +382,13 @@ static emu_result_t dc_run_frame(emu_core_t *core)
             remaining = 0;
         else
             remaining -= cyc;
+    }
+    /* AICA: full ARM7 budget, then the audio frame (documented model). */
+    dc_aica_arm_step(d, DC_AICA_HZ / 60u);
+    if (d->audio_cb != NULL) {
+        int16_t abuf[(DC_OUT_RATE / 60u) * 2u];
+        dc_aica_mix(d, abuf, DC_OUT_RATE / 60u);
+        d->audio_cb(d->audio_user, abuf, (DC_OUT_RATE / 60u) * 2u);
     }
     d->frame_count++;
     dc_render(d);
@@ -403,12 +444,18 @@ static emu_result_t dc_load_rom(emu_core_t *core, const uint8_t *data,
 
     memset(d->ram, 0, sizeof d->ram);
     memset(d->vram, 0, sizeof d->vram);
-    memset(d->aica, 0, sizeof d->aica);
+    memset(d->aica_ram, 0, sizeof d->aica_ram);
     memset(d->uram, 0, sizeof d->uram);
     memset(d->flash, 0xFF, sizeof d->flash); /* erased flash convention */
     memset(d->pvr_regs, 0, sizeof d->pvr_regs);
     memset(d->tmu, 0, sizeof d->tmu);
     d->tstr = 0;
+    memset(&d->ta, 0, sizeof d->ta);
+    memset(d->aica.ch, 0, sizeof d->aica.ch);
+    memset(d->aica.pos, 0, sizeof d->aica.pos);
+    memset(d->aica.active, 0, sizeof d->aica.active);
+    d->aica.mci_flag = 0;
+    arm_reset(&d->aica.cpu);
 
     dc_boot(d);
     dc_render(d);
@@ -442,14 +489,16 @@ static void dc_set_input(emu_core_t *core, uint32_t buttons)
 
 static void dc_set_audio(emu_core_t *core, emu_audio_cb_t cb, void *user)
 {
-    (void)core; (void)cb; (void)user; /* AICA not implemented: no audio */
+    struct dc *d = (struct dc *)core;
+    d->audio_cb = cb;
+    d->audio_user = user;
 }
 
 /* ---- save states --------------------------------------------------------------------- */
 
 static void dc_serialize(struct dc *d, emu_state_writer *w)
 {
-    sw_u32(w, 0x44434231u); /* "1BCD" */
+    sw_u32(w, 0x44434232u); /* "2BCD" - format rev 2 (TA + AICA) */
     for (int i = 0; i < 16; i++)
         sw_u32(w, d->cpu.r[i]);
     for (int b = 0; b < 2; b++)
@@ -486,10 +535,40 @@ static void dc_serialize(struct dc *d, emu_state_writer *w)
     sw_u32(w, d->buttons);
     sw_mem(w, d->pvr_regs, sizeof d->pvr_regs);
     sw_mem(w, d->flash, sizeof d->flash);
-    sw_mem(w, d->aica, sizeof d->aica);
+    sw_mem(w, d->aica_ram, sizeof d->aica_ram);
     sw_mem(w, d->vram, sizeof d->vram);
     sw_mem(w, d->ram, sizeof d->ram);
     sw_mem(w, d->uram, sizeof d->uram);
+    /* Tile Accelerator FIFO (count + used words + sticky overflow). */
+    sw_u32(w, d->ta.count);
+    for (uint32_t i = 0; i < d->ta.count; i++)
+        sw_u32(w, d->ta.fifo[i]);
+    sw_u32(w, d->ta.overflow);
+    /* AICA: ARM7 core state, raw channel registers, live voice state. */
+    const arm_t *c = &d->aica.cpu;
+    for (int i = 0; i < 16; i++)
+        sw_u32(w, c->r[i]);
+    for (int b = 0; b < 6; b++)
+        sw_u32(w, c->bank_r13[b]);
+    for (int b = 0; b < 6; b++)
+        sw_u32(w, c->bank_r14[b]);
+    for (int b = 0; b < 6; b++)
+        sw_u32(w, c->bank_spsr[b]);
+    for (int b = 0; b < 5; b++)
+        sw_u32(w, c->fiq_r8[b]);
+    sw_u32(w, c->pc);
+    sw_u32(w, c->cpsr);
+    sw_u32(w, c->irq_line ? 1u : 0u);
+    sw_u32(w, c->fiq_line ? 1u : 0u);
+    sw_u64(w, c->cycles);
+    for (uint32_t ch = 0; ch < DC_AICA_CH; ch++)
+        for (int r = 0; r < 32; r++)
+            sw_u16(w, d->aica.ch[ch][r]);
+    for (uint32_t ch = 0; ch < DC_AICA_CH; ch++)
+        sw_u64(w, d->aica.pos[ch]);
+    for (uint32_t ch = 0; ch < DC_AICA_CH; ch++)
+        sw_u8(w, d->aica.active[ch]);
+    sw_u8(w, d->aica.mci_flag);
 }
 
 static size_t dc_state_size(emu_core_t *core)
@@ -515,7 +594,7 @@ static emu_result_t dc_load_state(emu_core_t *core, const uint8_t *buf,
 {
     struct dc *d = (struct dc *)core;
     emu_state_reader rd = { buf, size, 0, 0 };
-    if (sr_u32(&rd) != 0x44434231u)
+    if (sr_u32(&rd) != 0x44434232u)
         return EMU_EBADSTATE;
     for (int i = 0; i < 16; i++)
         d->cpu.r[i] = sr_u32(&rd);
@@ -553,10 +632,44 @@ static emu_result_t dc_load_state(emu_core_t *core, const uint8_t *buf,
     d->buttons = sr_u32(&rd);
     sr_mem(&rd, d->pvr_regs, sizeof d->pvr_regs);
     sr_mem(&rd, d->flash, sizeof d->flash);
-    sr_mem(&rd, d->aica, sizeof d->aica);
+    sr_mem(&rd, d->aica_ram, sizeof d->aica_ram);
     sr_mem(&rd, d->vram, sizeof d->vram);
     sr_mem(&rd, d->ram, sizeof d->ram);
     sr_mem(&rd, d->uram, sizeof d->uram);
+    /* Tile Accelerator FIFO. */
+    d->ta.count = sr_u32(&rd);
+    if (d->ta.count > DC_TA_FIFO_WORDS) {
+        d->ta.count = 0;
+        return EMU_EBADSTATE;
+    }
+    for (uint32_t i = 0; i < d->ta.count; i++)
+        d->ta.fifo[i] = sr_u32(&rd);
+    d->ta.overflow = sr_u32(&rd);
+    /* AICA. */
+    arm_t *c = &d->aica.cpu;
+    for (int i = 0; i < 16; i++)
+        c->r[i] = sr_u32(&rd);
+    for (int b = 0; b < 6; b++)
+        c->bank_r13[b] = sr_u32(&rd);
+    for (int b = 0; b < 6; b++)
+        c->bank_r14[b] = sr_u32(&rd);
+    for (int b = 0; b < 6; b++)
+        c->bank_spsr[b] = sr_u32(&rd);
+    for (int b = 0; b < 5; b++)
+        c->fiq_r8[b] = sr_u32(&rd);
+    c->pc = sr_u32(&rd);
+    c->cpsr = sr_u32(&rd);
+    c->irq_line = (int)sr_u32(&rd);
+    c->fiq_line = (int)sr_u32(&rd);
+    c->cycles = sr_u64(&rd);
+    for (uint32_t ch = 0; ch < DC_AICA_CH; ch++)
+        for (int r = 0; r < 32; r++)
+            d->aica.ch[ch][r] = sr_u16(&rd);
+    for (uint32_t ch = 0; ch < DC_AICA_CH; ch++)
+        d->aica.pos[ch] = sr_u64(&rd);
+    for (uint32_t ch = 0; ch < DC_AICA_CH; ch++)
+        d->aica.active[ch] = sr_u8(&rd);
+    d->aica.mci_flag = sr_u8(&rd);
     if (rd.bad)
         return EMU_EBADSTATE;
     return EMU_OK;
@@ -583,6 +696,7 @@ static emu_result_t dc_create(emu_core_t **out)
     sh4_init(&d->cpu, &d->bus);
     d->bus = dc_bus_tmpl;
     d->bus.user = d;
+    dc_aica_arm_init(d);
     *out = &d->base;
     return EMU_OK;
 }

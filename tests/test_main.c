@@ -149,6 +149,8 @@ void t_register_saturn(void);
 void t_register_m64b(void);
 void t_register_ds(void);
 void t_register_dc(void);
+void t_register_dc_ta(void);
+void t_register_dc_aica(void);
 #if EMU_BUILD_BEATLE_PSX
 void t_register_beatle_psx_cpu(void);
 void t_register_beatle_psx_gte(void);
@@ -187,6 +189,8 @@ int main(void)
     t_register_m64b();
     t_register_ds();
     t_register_dc();
+    t_register_dc_ta();
+    t_register_dc_aica();
 #if EMU_BUILD_BEATLE_PSX
     t_register_beatle_psx_cpu();
     t_register_beatle_psx_gte();

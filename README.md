@@ -22,7 +22,7 @@ across host platforms and endianness.
 | supersaturn | Sega Saturn | partial | SH-2 x2, SCU (direct+indirect DMA, interrupts, timers), VDP1 (sprites/polygons/clipping, bank+LUT+RGB colors), SMPC INTBACK, IP.BIN boot (no BIOS); VDP2 compositing, SCSP sound and CD block are stubs |
 | mds-a | Nintendo DS | partial | ARM946E-S + ARM7TDMI interpreters (full ARM + Thumb), direct-boot from the .nds header (no BIOS), dual timers with cascade, IPC sync, per-CPU IRQ model, full 2D compositing on both engines (text/affine/extended BGs, OBJ sprites with rotation, priorities, master brightness, dual-screen 256x384 output); 3D engine, blending/windows, sound, touch and card bus are stubs |
 | m64-b | Nintendo 64 | partial | R4300i (MIPS III) interpreter + CP0/exceptions, PI DMA, SI PIF DMA, VI framebuffer output (16/32 bpp), no-PIF boot (IPL3 from cart runs in DMEM); RSP, AI audio and TLB not implemented |
-| supercastpro | Sega Dreamcast | partial | SH-4 interpreter (integer + single-precision FPU subset incl. FIPR/FTRV), TMU with TUNI interrupts, direct-boot from IP.BIN (no BIOS), PVR2 display-controller scanout (RGB565/888/0888); Tile Accelerator, AICA sound, GD-ROM and Maple input are stubs |
+| supercastpro | Sega Dreamcast | partial | SH-4 interpreter (integer + single-precision FPU subset incl. FIPR/FTRV), TMU with TUNI interrupts, direct-boot from IP.BIN (no BIOS), PVR2 scanout, Tile Accelerator subset (flat-shaded triangle strips/sprites into the VRAM framebuffer), AICA ARM7 + PCM16/8 channel synthesis with KYONEX/MCIPD doorbells; TA textures/alpha, ADPCM/DSP, GD-ROM and Maple input are stubs |
 
 **working** — boots, runs, produces audio, save states, suite green.
 **partial** — implements a documented subset of the hardware; software

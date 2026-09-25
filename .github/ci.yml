@@ -1,15 +1,3 @@
-# AArch CI.
-#
-# NOTE: this file lives at ci/github-ci.yml because the repository push
-# token lacked the GitHub `workflow` scope (workflow files under
-# .github/workflows/ are rejected without it). To activate CI, copy this
-# file to .github/workflows/ci.yml in the GitHub UI or push it with a
-# workflow-scoped token.
-#
-# Matrix: Linux x64 + ARM64, Windows (MSVC), macOS, and an Android NDK
-# compile check (API 23 = Android 6.0, arm64-v8a). Sanitizer and Werror
-# configurations run on Linux x64.
-
 name: ci
 
 on:

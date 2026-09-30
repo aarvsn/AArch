@@ -477,7 +477,7 @@ static void thumb_unconditional_branch(void)
 
 static void thumb_bl(void)
 {
-    /* BL at 0x08000000: LR = 0x08000005, target 0x0800000A */
+    /* BL at 0x08000000: LR = 0x08000005, target 0x08000008 */
     static const uint16_t prog[] = {
         0xF000u, /* 0: BL first half (high offset 0) */
         0xF802u, /* 1: BL second half (low offset 2) -> 0x08000008 */

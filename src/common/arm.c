@@ -1276,13 +1276,15 @@ uint32_t arm_step(arm_t *c)
             int32_t total = (off << 12) | (off2 << 1);
             if (total & 0x00400000u)
                 total |= (int32_t)0xFF800000u;
-            if ((hw2 & 0xF800u) == 0xD800u) { /* BL (v4T/v5) */
-                c->r[14] = cur + 4u;
+            if ((hw2 & 0xF800u) == 0xF800u) { /* BL (v4T/v5) */
+                c->r[14] = (cur + 4u) | 1u;
                 c->pc = cur + 4u + (uint32_t)total;
+                c->r[15] = c->pc + 4u;
             } else {
                 /* BLX from Thumb (v5T) and undefined pairs are not
                  * modeled; the pair is skipped (documented) */
                 c->pc = cur + 4u;
+                c->r[15] = c->pc + 4u;
             }
             c->cycles += 1;
             return 1;

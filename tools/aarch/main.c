@@ -124,22 +124,27 @@ static int core_smoke(const emu_core_vtable_t *vt, const uint8_t *rom, size_t ro
     size_t sz = a->vtable->state_size(a);
     if (sz > 0) {
         uint8_t *blob = malloc(sz);
-        a->vtable->save_state(a, blob, sz);
-        run_frames(a, 12);
-        uint32_t want = frame_crc(a);
-        emu_core_t *c = NULL;
-        vt->create(&c);
-        vt->load_rom(c, rom, rom_size);
-        c->vtable->load_state(c, blob, sz);
-        run_frames(c, 12);
-        uint32_t got = frame_crc(c);
-        if (want != got) {
-            fprintf(stderr, "smoke FAIL: state roundtrip (crc %08X != %08X)\n",
-                    got, want);
+        if (blob == NULL) {
+            fprintf(stderr, "smoke FAIL: out of memory for state\n");
             failures++;
+        } else {
+            a->vtable->save_state(a, blob, sz);
+            run_frames(a, 12);
+            uint32_t want = frame_crc(a);
+            emu_core_t *c = NULL;
+            vt->create(&c);
+            vt->load_rom(c, rom, rom_size);
+            c->vtable->load_state(c, blob, sz);
+            run_frames(c, 12);
+            uint32_t got = frame_crc(c);
+            if (want != got) {
+                fprintf(stderr, "smoke FAIL: state roundtrip (crc %08X != %08X)\n",
+                        got, want);
+                failures++;
+            }
+            free(blob);
+            vt->destroy(c);
         }
-        free(blob);
-        vt->destroy(c);
     }
 
     /* 3. continued run parity */
@@ -165,7 +170,9 @@ static void usage(void)
             "  --state-in FILE  load save state before running\n"
             "  --benchmark      report throughput instead of progress\n"
             "  --smoke          run in-process determinism checks\n"
-            "  --list           list compiled cores and exit\n");
+            "  --list           list compiled cores and exit\n"
+            "  --help, -h       display this help text and exit\n"
+            "  --version, -v    display version information and exit\n");
 }
 
 int main(int argc, char **argv)
@@ -174,6 +181,7 @@ int main(int argc, char **argv)
     const char *state_out = NULL, *state_in = NULL;
     uint32_t frames = 60, input = 0;
     int benchmark = 0, smoke = 0, do_list = 0;
+    int show_help = 0, show_version = 0;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--core") == 0 && i + 1 < argc)
@@ -196,12 +204,24 @@ int main(int argc, char **argv)
             smoke = 1;
         else if (strcmp(argv[i], "--list") == 0)
             do_list = 1;
+        else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0)
+            show_help = 1;
+        else if (strcmp(argv[i], "--version") == 0 || strcmp(argv[i], "-v") == 0)
+            show_version = 1;
         else {
             usage();
             return 2;
         }
     }
 
+    if (show_version) {
+        printf("aarch 0.3.0\n");
+        return 0;
+    }
+    if (show_help) {
+        usage();
+        return 0;
+    }
     if (do_list) {
         list_cores();
         return 0;
@@ -303,6 +323,7 @@ int main(int argc, char **argv)
         free(sblob);
         if (r != EMU_OK) {
             fprintf(stderr, "aarch: load_state failed: %s\n", emu_result_str(r));
+            free(rom);
             emu_core_destroy(core);
             return 1;
         }
@@ -361,6 +382,11 @@ int main(int argc, char **argv)
             return 3;
         }
         uint8_t *sblob = malloc(ssz);
+        if (sblob == NULL) {
+            fprintf(stderr, "aarch: out of memory for save state\n");
+            emu_core_destroy(core);
+            return 1;
+        }
         r = vt->save_state(core, sblob, ssz);
         if (r != EMU_OK) {
             fprintf(stderr, "aarch: save_state failed: %s\n", emu_result_str(r));
